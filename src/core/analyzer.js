@@ -1,0 +1,208 @@
+/**
+ * Vincula — cruzamento Relação GRCON × LDs e montagem do plano de escrita.
+ *
+ * Nada é gravado aqui. Esta camada decide, documento a documento, o que
+ * mudaria e por quê — é o insumo da pré-visualização e, depois de confirmada,
+ * do plano enviado aos workers.
+ */
+(function (scope) {
+  'use strict';
+
+  const V = (scope.Vincula = scope.Vincula || {});
+  const { squash } = V.util;
+  const D = V.dates;
+
+  const STATUS = {
+    ATUALIZAR: 'ATUALIZAR',
+    SEM_ALTERACAO: 'SEM_ALTERACAO',
+    NAO_ENCONTRADO: 'NAO_ENCONTRADO',
+    BLOQUEADO: 'BLOQUEADO',
+    ERRO: 'ERRO',
+  };
+
+  const STATUS_LABEL = {
+    ATUALIZAR: 'Alterado',
+    SEM_ALTERACAO: 'Sem alteração',
+    NAO_ENCONTRADO: 'Não encontrado',
+    BLOQUEADO: 'Bloqueado',
+    ERRO: 'Erro',
+  };
+
+  const FLAG = {
+    DUPLICADO_RELACAO: 'DUPLICADO_RELACAO',
+    DUPLICADO_LD: 'DUPLICADO_LD',
+    DATA_INVALIDA: 'DATA_INVALIDA',
+    GRDT_AUSENTE: 'GRDT_AUSENTE',
+    DATA_TEXTO: 'DATA_TEXTO',
+  };
+
+  const FLAG_LABEL = {
+    DUPLICADO_RELACAO: 'Duplicado na relação',
+    DUPLICADO_LD: 'Duplicado na LD',
+    DATA_INVALIDA: 'Data da postagem inválida',
+    GRDT_AUSENTE: 'GRDT ausente na relação',
+    DATA_TEXTO: 'Data convertida de texto para data do Excel',
+  };
+
+  /** Data já presente na LD, normalizada para comparação. */
+  function existingDateIso(entry) {
+    if (entry.beforeDateSerial === null || entry.beforeDateSerial === undefined) return null;
+    return D.formatIsoDate(D.serialToDate(entry.beforeDateSerial, false));
+  }
+
+  /**
+   * @param {object} relation  índice da Relação GRCON
+   * @param {object} global    índice global das LDs (documento → ocorrências)
+   * @param {object} files     mapa fileId → {id, name, sheetName}
+   * @param {{convertTextDates?:boolean}} options
+   */
+  function analyze(relation, global, files, options = {}) {
+    const convertTextDates = options.convertTextDates !== false;
+
+    const records = [];
+    const missing = [];
+    const invalidDates = [];
+    const plans = new Map();
+    let sequence = 0;
+
+    for (const [document, source] of relation.selected) {
+      const matches = global.byDocument.get(document);
+      const duplicatedInRelation = (relation.duplicates.find((d) => d.document === document)?.count || 0) > 1;
+
+      if (!matches || !matches.length) {
+        const record = {
+          id: ++sequence,
+          document,
+          status: STATUS.NAO_ENCONTRADO,
+          flags: duplicatedInRelation ? [FLAG.DUPLICADO_RELACAO] : [],
+          relationRow: source.row,
+          fileId: null,
+          fileName: '',
+          sheetName: '',
+          row: null,
+          beforeGrdt: '',
+          afterGrdt: source.grdt,
+          beforeDate: '',
+          afterDate: source.dateText,
+          grdtWillChange: false,
+          dateWillChange: false,
+          reason: 'Documento pertence a outra LD.',
+        };
+        records.push(record);
+        missing.push(record);
+        continue;
+      }
+
+      // Documento repetido na LD: todas as ocorrências exatas são atualizadas.
+      for (const entry of matches) {
+        const file = files.get(entry.fileId) || { name: '', sheetName: '' };
+        const flags = [];
+        if (duplicatedInRelation) flags.push(FLAG.DUPLICADO_RELACAO);
+        if (matches.length > 1) flags.push(FLAG.DUPLICADO_LD);
+
+        const grdtValue = squash(source.grdt);
+        const hasGrdt = grdtValue !== '' && !D.isBlankDateToken(grdtValue);
+        if (!hasGrdt) flags.push(FLAG.GRDT_AUSENTE);
+        if (!source.dateValid) flags.push(FLAG.DATA_INVALIDA);
+
+        const grdtWillChange = hasGrdt && squash(entry.beforeGrdt) !== grdtValue;
+
+        let dateWillChange = false;
+        if (source.dateValid) {
+          const current = existingDateIso(entry);
+          // Mesmo dia, porém guardado como texto: reescreve como data real do
+          // Excel — o tipo faz parte do resultado exigido, não só o valor.
+          dateWillChange = current !== source.dateIso || (!entry.dateCellIsDate && convertTextDates);
+          if (dateWillChange && !entry.dateCellIsDate) flags.push(FLAG.DATA_TEXTO);
+        }
+
+        const reasons = [];
+        reasons.push(
+          duplicatedInRelation
+            ? `Relação: ${relation.duplicates.find((d) => d.document === document).count} ocorrências; vence a última, linha ${source.row}.`
+            : `Relação: ocorrência única, linha ${source.row}.`
+        );
+        reasons.push(
+          matches.length > 1
+            ? `LD: ${matches.length} ocorrências do documento; todas atualizadas.`
+            : `LD: ${file.name} · ${file.sheetName} · linha ${entry.row}.`
+        );
+        if (!source.dateValid) {
+          reasons.push(
+            `Data da postagem inválida ("${source.sourceDateRaw || 'vazio'}"); a Data Efetiva de Emissão da LD é preservada.`
+          );
+        }
+        if (!hasGrdt) reasons.push('GRDT sem valor válido na relação; a GRDT da LD é preservada.');
+        if (entry.grdtHasFormula && grdtWillChange) reasons.push('Célula de GRDT contém fórmula; verificação aplicada na gravação.');
+        if (!grdtWillChange && !dateWillChange) reasons.push('Valores já conferem; nenhuma escrita será executada.');
+
+        const willChange = grdtWillChange || dateWillChange;
+        const record = {
+          id: ++sequence,
+          document,
+          status: willChange ? STATUS.ATUALIZAR : STATUS.SEM_ALTERACAO,
+          flags,
+          relationRow: source.row,
+          fileId: entry.fileId,
+          fileName: file.name,
+          sheetName: file.sheetName,
+          row: entry.row,
+          beforeGrdt: entry.beforeGrdt,
+          afterGrdt: grdtWillChange ? source.grdt : entry.beforeGrdt,
+          beforeDate: entry.beforeDate,
+          afterDate: source.dateValid ? source.dateText : entry.beforeDate,
+          grdtWillChange,
+          dateWillChange,
+          reason: reasons.join(' '),
+        };
+        records.push(record);
+        if (!source.dateValid) invalidDates.push(record);
+
+        if (willChange) {
+          let plan = plans.get(entry.fileId);
+          if (!plan) plans.set(entry.fileId, (plan = []));
+          plan.push({
+            recordId: record.id,
+            document,
+            row: entry.row,
+            grdt: grdtWillChange ? source.grdt : null,
+            dateIso: dateWillChange ? source.dateIso : null,
+          });
+        }
+      }
+    }
+
+    const changing = records.filter((r) => r.status === STATUS.ATUALIZAR);
+    const stats = {
+      relationRows: relation.totalRows,
+      relationDocuments: relation.uniqueDocuments,
+      relationDuplicates: relation.duplicates.length,
+      relationConflicts: relation.duplicates.filter((d) => d.conflict).length,
+      ldEntries: global.totalEntries,
+      ldDocuments: global.uniqueDocuments,
+      ldDuplicates: global.duplicatedDocuments,
+      records: records.length,
+      found: relation.uniqueDocuments - missing.length,
+      missing: missing.length,
+      willChange: changing.length,
+      unchanged: records.filter((r) => r.status === STATUS.SEM_ALTERACAO).length,
+      invalidDates: invalidDates.length,
+      grdtWrites: changing.filter((r) => r.grdtWillChange).length,
+      dateWrites: changing.filter((r) => r.dateWillChange).length,
+    };
+
+    return { records, missing, invalidDates, plans, stats };
+  }
+
+  /** Filtro da pré-visualização: casa tanto status quanto marcadores. */
+  function matchesFilter(record, filter) {
+    if (!filter || filter === 'ALL') return true;
+    if (filter === 'DUPLICADO') {
+      return record.flags.includes(FLAG.DUPLICADO_RELACAO) || record.flags.includes(FLAG.DUPLICADO_LD);
+    }
+    if (filter === 'DATA_INVALIDA') return record.flags.includes(FLAG.DATA_INVALIDA);
+    return record.status === filter;
+  }
+
+  V.analyzer = { STATUS, STATUS_LABEL, FLAG, FLAG_LABEL, analyze, matchesFilter };
+})(typeof self !== 'undefined' ? self : this);
