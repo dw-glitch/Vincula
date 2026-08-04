@@ -1,0 +1,17 @@
+VINCULA v1.0.4
+
+Melhorias implementadas nesta versão
+- Nome oficial alterado para Vincula.
+- Estrutura preparada para processamento incremental de múltiplas LDs.
+- Contador de alterações passa a refletir somente células realmente modificadas.
+- Tratamento de documentos ausentes continua não bloqueante.
+- Preservação da data quando a coluna 'DATA DA GERAÇÃO / POSTAGEM' estiver inválida.
+
+Próximas otimizações planejadas
+- Índice em memória persistente para evitar reindexação das mesmas LDs.
+- Processamento em Web Workers para não travar a interface.
+- Geração paralela dos XLSX.
+- Streaming de leitura para arquivos grandes.
+- Cache inteligente por hash do arquivo.
+- Barra de progresso por etapa.
+- Modo 'diferenças apenas' para reduzir escritas.
