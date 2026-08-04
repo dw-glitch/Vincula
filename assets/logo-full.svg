@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 72" width="480" height="72" role="img" aria-labelledby="vinculaFullTitle">
+  <title id="vinculaFullTitle">Vincula</title>
+  <defs>
+    <linearGradient id="vinculaBgFull" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#12457c"/>
+      <stop offset="1" stop-color="#061b34"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="1" y="1" width="70" height="70" rx="18" fill="url(#vinculaBgFull)"/>
+  <path d="M18.5 16 L35.5 42.5" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round"/>
+  <path d="M54.5 16 L37.5 42.5" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round"/>
+  <rect x="29.9" y="36.1" width="14" height="14" rx="3.8" transform="rotate(45 36 43)" fill="#ef8b2c"/>
+  <rect x="24" y="56" width="24" height="5.5" rx="2.75" fill="#ef8b2c"/>
+
+  <text x="92" y="46" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="34" fill="#0b2e59" letter-spacing="0.2">Vincula</text>
+  <text x="93" y="63" font-family="Arial, Helvetica, sans-serif" font-weight="600" font-size="11.5" fill="#667085" letter-spacing="0.3">ATUALIZADOR INTELIGENTE DE LD POR RELAÇÃO GRCON</text>
+</svg>

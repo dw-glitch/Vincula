@@ -49,6 +49,24 @@
     el.dataset.kind = kind || 'info';
   }
 
+  // Uma etapa só é alcançável quando seu pré-requisito já foi cumprido —
+  // sem isto, os quatro botões do topo pareciam igualmente clicáveis mesmo
+  // antes de haver relação carregada, análise ou relatório.
+  function stepReachable(n) {
+    if (n === 1) return true;
+    if (n === 2) return !!engine.state.relation;
+    if (n === 3) return !!engine.state.analysis;
+    if (n === 4) return !!engine.state.report;
+    return false;
+  }
+
+  function refreshStepsNav() {
+    for (let i = 1; i <= 4; i++) {
+      const button = document.querySelector(`.step[data-step="${i}"]`);
+      button.disabled = !stepReachable(i);
+    }
+  }
+
   function goToStep(n) {
     for (let i = 1; i <= 4; i++) {
       $('step' + i).classList.toggle('hidden', i !== n);
@@ -56,6 +74,7 @@
       button.classList.toggle('active', i === n);
       button.classList.toggle('done', i < n);
     }
+    refreshStepsNav();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -239,6 +258,7 @@
   function refreshReadyState() {
     const ready = !!engine.state.relation && engine.state.lds.some((l) => !l.error);
     $('toMappingBtn').disabled = !ready;
+    refreshStepsNav();
   }
 
   /* ================================================================== *
@@ -506,14 +526,24 @@
     );
   }
 
+  // Para uma correspondência direta e sem pendências, o motivo só repete o
+  // que a coluna LD/Aba/Linha já mostra ("ocorrência única, linha X..."). Em
+  // milhares de linhas isso é ruído puro; o texto completo continua no
+  // relatório e disponível ao passar o mouse — na tela só o que exige atenção.
+  function displayReason(record) {
+    const trivial = (!record.flags || !record.flags.length) && (record.status === 'ATUALIZAR' || record.status === 'SEM_ALTERACAO');
+    return trivial ? '' : record.reason;
+  }
+
   function renderPreview() {
     const start = (ui.page - 1) * PAGE_SIZE;
     const rows = ui.filtered.slice(start, start + PAGE_SIZE);
 
     $('previewBody').innerHTML =
       rows
-        .map(
-          (r) => `<tr>
+        .map((r) => {
+          const shown = displayReason(r);
+          return `<tr>
         <td>${statusPill(r)}${flagChips(r)}</td>
         <td><strong>${esc(r.document)}</strong></td>
         <td>${r.fileName ? `${esc(r.fileName)}<br><small>${esc(r.sheetName)} · linha ${r.row}</small>` : '—'}</td>
@@ -521,9 +551,9 @@
         <td class="${r.grdtWillChange ? 'changed' : ''}">${esc(r.afterGrdt)}</td>
         <td>${esc(r.beforeDate)}</td>
         <td class="${r.dateWillChange ? 'changed' : ''}">${esc(r.afterDate)}</td>
-        <td class="reason">${esc(r.reason)}</td>
-      </tr>`
-        )
+        <td class="reason" title="${esc(r.reason)}">${shown ? esc(shown) : '<span class="reason-empty">—</span>'}</td>
+      </tr>`;
+        })
         .join('') || '<tr><td colspan="8" class="empty">Nenhum resultado para o filtro atual.</td></tr>';
 
     const pages = Math.max(1, Math.ceil(ui.filtered.length / PAGE_SIZE));
@@ -542,8 +572,18 @@
     const totalWrites = outputs.reduce((sum, o) => sum + o.grdtWrites + o.dateWrites, 0);
     const reproved = outputs.filter((o) => o.integrity !== 'APROVADA');
 
+    const ok = !result.failures.length;
     $('finalSummary').innerHTML = `
-      <h4>${result.failures.length ? 'Atualização concluída com pendências' : 'Atualização concluída com integridade aprovada'}</h4>
+      <h4 class="${ok ? '' : 'has-pending'}">
+        <svg class="completion-icon" viewBox="0 0 24 24" aria-hidden="true">
+          ${
+            ok
+              ? '<circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7.5 12.5l3 3 6-6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'
+              : '<path d="M12 3l9 16H3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 9.5v4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="16.6" r="1" fill="currentColor"/>'
+          }
+        </svg>
+        ${ok ? 'Atualização concluída com integridade aprovada' : 'Atualização concluída com pendências'}
+      </h4>
       <p>
         ${formatNumber(outputs.length)} LD(s) gerada(s) · ${formatNumber(totalWrites)} célula(s) autorizada(s) gravada(s) ·
         ${formatNumber(s.missing)} documento(s) pertencem a outra LD · ${formatNumber(s.invalidDates)} data(s) de postagem inválida(s)
@@ -756,6 +796,7 @@
    * ================================================================== */
 
   $('appVersion').textContent = 'v' + V.VERSION;
+  refreshStepsNav();
 
   engine.pool.ready().then((mode) => {
     const badge = $('modeBadge');

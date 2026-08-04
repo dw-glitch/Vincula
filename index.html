@@ -6,14 +6,29 @@
 <meta name="theme-color" content="#0b2e59">
 <meta name="description" content="Vincula — atualizador inteligente de LD por Relação GRCON.">
 <title>Vincula — Atualizador de LD por Relação GRCON</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b2e59'/%3E%3Cpath d='M16 18h9l7 21 7-21h9L38 48h-12z' fill='%23fff'/%3E%3Crect x='16' y='52' width='32' height='5' rx='2.5' fill='%23ef8b2c'/%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByb2xlPSJpbWciIGFyaWEtbGFiZWxsZWRieT0idmluY3VsYU1hcmtUaXRsZSI+CiAgPHRpdGxlIGlkPSJ2aW5jdWxhTWFya1RpdGxlIj5WaW5jdWxhPC90aXRsZT4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0idmluY3VsYUJnIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iIzEyNDU3YyIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMwNjFiMzQiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgPC9kZWZzPgogIDxyZWN0IHg9IjEiIHk9IjEiIHdpZHRoPSI2MiIgaGVpZ2h0PSI2MiIgcng9IjE2IiBmaWxsPSJ1cmwoI3ZpbmN1bGFCZykiLz4KICA8cmVjdCB4PSIxIiB5PSIxIiB3aWR0aD0iNjIiIGhlaWdodD0iNjIiIHJ4PSIxNiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmZmZmIiBzdHJva2Utb3BhY2l0eT0iMC4wNiIvPgogIDwhLS0gRHVhcyBoYXN0ZXMgcXVlIHNlIGVuY29udHJhbTogZG9pcyBkb2N1bWVudG9zIHZpbmN1bGFkb3MgZW0gdW0gcG9udG8uIC0tPgogIDxwYXRoIGQ9Ik0xNS41IDE0IEwzMS41IDM3LjUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLXdpZHRoPSI5IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNNDguNSAxNCBMMzIuNSAzNy41IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS13aWR0aD0iOSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPCEtLSBPIHBpbm86IG8gcG9udG8gZXhhdG8gb25kZSBvcyBkb2lzIHJlZ2lzdHJvcyBzZSBsaWdhbS4gLS0+CiAgPHJlY3QgeD0iMjUuNyIgeT0iMzEuNyIgd2lkdGg9IjEyLjYiIGhlaWdodD0iMTIuNiIgcng9IjMuNCIgdHJhbnNmb3JtPSJyb3RhdGUoNDUgMzIgMzgpIiBmaWxsPSIjZWY4YjJjIi8+CiAgPCEtLSBCYXJyYSBiYXNlOiBhIGxpbmhhIGRvIHJlZ2lzdHJvIGF0dWFsaXphZG8uIC0tPgogIDxyZWN0IHg9IjIxIiB5PSI1MCIgd2lkdGg9IjIyIiBoZWlnaHQ9IjUiIHJ4PSIyLjUiIGZpbGw9IiNlZjhiMmMiLz4KPC9zdmc+Cg==">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
 <header class="topbar">
   <div class="brand">
-    <div class="brand-mark">V</div>
+    <div class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 64 64" role="img">
+        <defs>
+          <linearGradient id="vinculaBg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#12457c"/>
+            <stop offset="1" stop-color="#061b34"/>
+          </linearGradient>
+        </defs>
+        <rect x="1" y="1" width="62" height="62" rx="16" fill="url(#vinculaBg)"/>
+        <rect x="1" y="1" width="62" height="62" rx="16" fill="none" stroke="#ffffff" stroke-opacity="0.06"/>
+        <path d="M15.5 14 L31.5 37.5" fill="none" stroke="#ffffff" stroke-width="9" stroke-linecap="round"/>
+        <path d="M48.5 14 L32.5 37.5" fill="none" stroke="#ffffff" stroke-width="9" stroke-linecap="round"/>
+        <rect x="25.7" y="31.7" width="12.6" height="12.6" rx="3.4" transform="rotate(45 32 38)" fill="#ef8b2c"/>
+        <rect x="21" y="50" width="22" height="5" rx="2.5" fill="#ef8b2c"/>
+      </svg>
+    </div>
     <div>
       <h1>Vincula <span class="version" id="appVersion"></span></h1>
       <p>Atualizador inteligente de LD por Relação GRCON</p>
@@ -38,11 +53,20 @@
         estrutura da planilha é preservada e conferida célula a célula após a gravação.
       </p>
     </div>
-    <div class="guardrails">
-      <div><strong>2</strong><span>campos alteráveis</span></div>
-      <div><strong>0</strong><span>alterações fora do escopo</span></div>
-      <div><strong>0</strong><span>arquivos enviados</span></div>
-    </div>
+    <ul class="guardrails">
+      <li>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3.2v5.4c0 4.8-3 8.9-7 10.4-4-1.5-7-5.6-7-10.4V6.2L12 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 12.2l2 2 4-4.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Só <strong>GRDT</strong> e <strong>Data Efetiva</strong> podem mudar</span>
+      </li>
+      <li>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>Cada gravação é <strong>conferida célula a célula</strong></span>
+      </li>
+      <li>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a4 4 0 01-.6-7.96A5.5 5.5 0 0117.4 8.5 4.2 4.2 0 0117 18H9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 3.5l17 17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>Nada sai do seu navegador — <strong>sem servidor</strong></span>
+      </li>
+    </ul>
   </section>
 
   <!-- ============ Painel de progresso ============ -->
@@ -108,7 +132,9 @@
     <div class="upload-grid">
       <label class="dropzone" id="relationDrop">
         <input id="relationInput" type="file" accept=".xlsx,.xlsm" hidden>
-        <span class="drop-icon">1</span>
+        <span class="drop-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9.5 13.2l1.8 1.8 3.2-3.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
         <strong>Relação GRCON</strong>
         <small>Um arquivo .xlsx ou .xlsm</small>
         <span id="relationFileName" class="file-name">Nenhum arquivo selecionado</span>
@@ -116,7 +142,9 @@
 
       <label class="dropzone" id="ldDrop">
         <input id="ldInput" type="file" accept=".xlsx,.xlsm" multiple hidden>
-        <span class="drop-icon">+</span>
+        <span class="drop-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M6.5 5h7l4 4v10h-11z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M13.5 5v4h4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M3.5 8v11h9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+        </span>
         <strong>Arquivos de LD</strong>
         <small>Selecione ou arraste várias LDs de uma vez</small>
         <span id="ldFileName" class="file-name">Nenhuma LD selecionada</span>

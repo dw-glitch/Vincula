@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.0.1
+
+Identidade visual e refinamento de UX/UI, sem mudanças no motor de processamento.
+
+### Identidade visual
+
+- Nova marca (`assets/logo-mark.svg`): duas hastes que se ligam em um pino, representando o
+  próprio conceito de "vincular" dois registros (GRCON e LD) em um ponto exato — substitui o
+  antigo "V" genérico em caixa branca.
+- Lockup horizontal (`assets/logo-full.svg`) para uso em documentação, com variante clara e escura.
+- Favicon e marca da topbar atualizados para a nova marca.
+
+### UX/UI
+
+- **Faixa de confiança do topo reformulada.** Os contadores "0 alterações fora do escopo" e
+  "0 arquivos enviados" liam-se como algo já quebrado antes de qualquer ação do usuário. Viraram
+  três afirmações sempre verdadeiras com ícone (restrição de campos, auditoria célula a célula,
+  processamento local) — nunca mais parecem um estado vazio ou uma falha.
+- **Coluna "Motivo" da conferência, redesenhada para escala.** Em milhares de linhas, o texto
+  repetia "Relação: ocorrência única, linha X. LD: arquivo · aba · linha Y." em toda correspondência
+  direta, sem valor de leitura. Agora só aparece texto quando há algo que exige atenção (duplicidade,
+  data inválida, GRDT ausente, bloqueio); o caso comum mostra um traço neutro. O texto completo
+  permanece disponível em qualquer linha ao passar o mouse.
+- **Navegação de etapas agora reflete o que é alcançável.** Os botões "Colunas", "Conferência" e
+  "Downloads" ficam visivelmente desabilitados até que o pré-requisito de cada um exista, em vez de
+  parecerem igualmente clicáveis desde o carregamento da página.
+- Ícones nas zonas de arquivo (documento único para a Relação, pilha de documentos para as LDs),
+  no lugar dos glifos genéricos "1" e "+".
+- Selo de conclusão da etapa 4 ganhou um ícone de verificação (ou de alerta, quando há pendências),
+  reforçando o resultado antes mesmo da leitura do texto.
+- Indicação sutil de rolagem na navegação de etapas em telas estreitas.
+
 ## 2.0.0
 
 Reescrita completa do motor. O comportamento visível permanece o mesmo fluxo de quatro etapas,

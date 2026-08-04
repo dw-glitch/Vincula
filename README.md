@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo-full.svg" alt="Vincula — atualizador inteligente de LD por Relação GRCON" width="420"></p>
+
 # Vincula 2.0
 
 **Atualizador inteligente de LD por Relação GRCON.**
@@ -105,6 +107,7 @@ node tests/bench.js 5 4000 # variação: poucos arquivos, muitas linhas
 ├── index.html                 interface
 ├── styles.css
 ├── lib/jszip.min.js           única dependência de terceiros
+├── assets/                    identidade visual (logo-mark.svg, logo-full.svg)
 ├── src/
 │   ├── core/                  núcleo sem DOM (roda na página e no worker)
 │   │   ├── util.js            normalização, referências, hash, formatação
