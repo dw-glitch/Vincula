@@ -13,11 +13,11 @@
 
   const STAGES = {
     leitura: 'Leitura',
-    indexacao: 'Indexação',
+    indexacao: 'Preparação',
     analise: 'Análise',
     atualizacao: 'Atualização',
     relatorio: 'Relatório',
-    compactacao: 'Compactação ZIP',
+    compactacao: 'Finalização',
   };
 
   class CancelledError extends Error {

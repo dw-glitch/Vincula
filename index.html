@@ -35,8 +35,8 @@
     </div>
   </div>
   <div class="header-actions">
-    <span class="badge" id="modeBadge" title="Modo de processamento">Iniciando…</span>
-    <span class="badge privacy">Processamento 100% local</span>
+    <span class="badge privacy">Tudo acontece no seu computador</span>
+    <span class="badge hidden" id="modeBadge"></span>
     <button id="resetBtn" class="btn ghost">Limpar sessão</button>
   </div>
 </header>
@@ -48,9 +48,9 @@
       <span class="eyebrow">Fluxo seguro e auditável</span>
       <h2>Atualize dezenas de LDs a partir de uma única Relação GRCON</h2>
       <p>
-        Cada documento é localizado por correspondência exata normalizada em um índice de acesso direto.
-        Somente <strong>GRDT</strong> e <strong>Data Efetiva de Emissão</strong> podem ser alteradas — toda a
-        estrutura da planilha é preservada e conferida célula a célula após a gravação.
+        Cada documento é localizado automaticamente. Somente <strong>GRDT</strong> e
+        <strong>Data Efetiva de Emissão</strong> são alteradas — o restante da planilha permanece
+        exatamente como estava.
       </p>
     </div>
     <ul class="guardrails">
@@ -64,7 +64,7 @@
       </li>
       <li>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a4 4 0 01-.6-7.96A5.5 5.5 0 0117.4 8.5 4.2 4.2 0 0117 18H9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 3.5l17 17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-        <span>Nada sai do seu navegador — <strong>sem servidor</strong></span>
+        <span>Nada é enviado para fora do seu computador</span>
       </li>
     </ul>
   </section>
@@ -89,8 +89,8 @@
         <span class="stage-pct">0%</span>
       </div>
       <div class="stage" data-stage="indexacao">
-        <span class="stage-label">Indexação</span>
-        <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Indexação"><div class="progress-fill"></div></div>
+        <span class="stage-label">Preparação</span>
+        <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Preparação"><div class="progress-fill"></div></div>
         <span class="stage-pct">0%</span>
       </div>
       <div class="stage" data-stage="atualizacao">
@@ -99,8 +99,8 @@
         <span class="stage-pct">0%</span>
       </div>
       <div class="stage" data-stage="compactacao">
-        <span class="stage-label">Compactação ZIP</span>
-        <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Compactação"><div class="progress-fill"></div></div>
+        <span class="stage-label">Finalização</span>
+        <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Finalização"><div class="progress-fill"></div></div>
         <span class="stage-pct">0%</span>
       </div>
     </div>
@@ -126,7 +126,7 @@
   <section id="step1" class="workspace panel">
     <div class="section-heading">
       <div><span class="eyebrow">Etapa 1</span><h3>Carregar arquivos</h3></div>
-      <p>Os originais nunca são sobrescritos. Todo o processamento acontece no seu navegador.</p>
+      <p>Os arquivos originais nunca são sobrescritos. Nada é enviado para fora do seu computador.</p>
     </div>
 
     <div class="upload-grid">
@@ -163,10 +163,7 @@
   <section id="step2" class="workspace panel hidden">
     <div class="section-heading">
       <div><span class="eyebrow">Etapa 2</span><h3>Confirmar associação das colunas</h3></div>
-      <p>
-        A detecção reconhece variações de grafia, acentuação e espaçamento. Confira as sugestões —
-        na Relação GRCON a data precisa vir da coluna <strong>DATA DA GERAÇÃO / POSTAGEM</strong>.
-      </p>
+      <p>O sistema tenta identificar as colunas sozinho. Confira as sugestões abaixo antes de continuar.</p>
     </div>
 
     <div id="relationMapping" class="mapping-group"></div>
@@ -188,11 +185,9 @@
     <label class="confirm-line option">
       <input id="flexibleMatchingOption" type="checkbox">
       <span>
-        <strong>Correspondência flexível</strong> — se um documento não bater por igualdade exata, tenta de novo
-        ignorando zero à esquerda, espaço e pontuação (ex.: <code>"0091"</code> ↔ <code>"91"</code>,
-        <code>"REL-001"</code> ↔ <code>"REL 001"</code>). Desligada por padrão; quando resolve algo, marca o
-        registro como "Correspondência aproximada" para conferência — nunca decide sozinha entre dois documentos
-        diferentes que colidiriam pela mesma chave.
+        <strong>Tentar mais na busca</strong> — ative se algum documento não for encontrado por causa de um
+        espaço, um zero a mais ou um traço diferente. Todo documento resolvido assim fica marcado para você
+        conferir antes de gerar.
       </span>
     </label>
 

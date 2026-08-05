@@ -102,7 +102,7 @@
    * ================================================================== */
 
   // O motor emite seis fases; a interface mostra quatro barras, conforme o
-  // vocabulário do usuário. Análise entra em Indexação, relatório em ZIP.
+  // vocabulário do usuário. Análise entra em Preparação, relatório em Finalização.
   const STAGE_MAP = {
     leitura: 'leitura',
     indexacao: 'indexacao',
@@ -196,7 +196,12 @@
     try {
       const relation = await engine.loadRelation(file);
       $('relationFileName').textContent = `${file.name} · ${formatBytes(file.size)}`;
-      status(`Relação carregada: ${relation.meta.sheets.length} aba(s). Confiança da detecção: ${relation.mapping.confidence}.`, 'ok');
+      status(
+        relation.mapping.confidence === 'alta'
+          ? 'Relação carregada. As colunas foram identificadas automaticamente.'
+          : 'Relação carregada. Confira as colunas na próxima etapa.',
+        'ok'
+      );
       refreshFileList();
       refreshReadyState();
     } catch (error) {
@@ -241,15 +246,13 @@
       const r = engine.state.relation;
       items.push(
         `<div class="file-row"><span class="tag rel">Relação</span><strong>${esc(r.name)}</strong>
-         <small>${formatBytes(r.size)} · ${r.meta.sheets.length} aba(s)</small>
-         <code title="SHA-256">${esc(r.hash.slice(0, 12))}…</code></div>`
+         <small>${formatBytes(r.size)} · ${r.meta.sheets.length} aba(s)</small></div>`
       );
     }
     for (const ld of engine.state.lds) {
       items.push(
         `<div class="file-row${ld.error ? ' bad' : ''}"><span class="tag ld">LD</span><strong>${esc(ld.name)}</strong>
-         <small>${ld.error ? esc(ld.error) : `${formatBytes(ld.size)}${ld.fromCache ? ' · reaproveitada do cache' : ''}`}</small>
-         <code title="SHA-256">${ld.hash ? esc(ld.hash.slice(0, 12)) + '…' : '—'}</code></div>`
+         <small>${ld.error ? esc(ld.error) : `${formatBytes(ld.size)}${ld.fromCache ? ' · já lida antes' : ''}`}</small></div>`
       );
     }
     $('fileList').innerHTML = items.join('');
@@ -315,6 +318,7 @@
     }
 
     const confidence = mapping.confidence || 'baixa';
+    const confidenceLabel = { alta: 'Colunas identificadas', media: 'Confira as colunas', baixa: 'Revise as colunas' }[confidence];
     const complete = mapping.documentCol && mapping.grdtCol && mapping.dateCol;
     const dateLabel = kind === 'r' ? 'Data da geração / postagem' : 'Data efetiva de emissão';
 
@@ -341,8 +345,8 @@
     return `<div class="mapping-card${collapsed ? ' collapsed' : ''}${complete ? '' : ' incomplete'}" data-card="${kind}-${index}">
       <button class="mapping-head" type="button" data-toggle="${kind}-${index}">
         <span class="mapping-title">${esc(name)}</span>
-        <span class="conf conf-${esc(confidence)}">detecção ${esc(confidence)}</span>
-        ${complete ? '' : '<span class="conf conf-baixa">campos pendentes</span>'}
+        <span class="conf conf-${esc(confidence)}">${esc(confidenceLabel)}</span>
+        ${complete ? '' : '<span class="conf conf-baixa">faltam colunas</span>'}
         <span class="chevron" aria-hidden="true"></span>
       </button>
       <div class="mapping-body">${body}</div>
@@ -484,11 +488,11 @@
         )} pertencem a outra LD · ${formatNumber(s.relationDuplicates)} duplicados · ${formatNumber(
           s.willChange
         )} atualizações previstas.</strong>
-         As pendências são informativas: documentos não localizados não são alterados e, quando a data da postagem
-         é inválida, a Data Efetiva de Emissão existente na LD é preservada. A geração permanece liberada.`
+         Isso não impede de continuar: documentos não encontrados simplesmente não são alterados, e quando a data
+         está inválida, a data que já estava na LD é mantida.`
       : `<strong>${formatNumber(s.relationDocuments)} documentos na relação · ${formatNumber(s.found)} encontrados · ${formatNumber(
           s.willChange
-        )} atualizações previstas.</strong> Nenhuma pendência: todos os documentos localizados possuem data válida.`;
+        )} atualizações previstas.</strong> Tudo certo, pode continuar.`;
 
     renderMatchDiagnostics(analysis, s.relationDocuments > 0 && s.found / s.relationDocuments < 0.05);
 
@@ -547,27 +551,26 @@
     container.innerHTML = `
       <button type="button" class="diagnostics-head" id="toggleDiagnostics" aria-expanded="${autoOpen ? 'true' : 'false'}">
         <span>
-          <strong>${autoOpen ? 'Poucas correspondências — compare as chaves abaixo' : 'Diagnóstico de correspondência'}</strong>
-          <small>Exemplos reais de como cada documento vira a chave usada para casar Relação × LD.</small>
+          <strong>${autoOpen ? 'Poucos documentos encontrados — veja por quê' : 'Por que um documento não foi encontrado?'}</strong>
+          <small>Compare como o mesmo documento aparece na Relação e nas LDs.</small>
         </span>
         <span class="chevron" aria-hidden="true"></span>
       </button>
       <div class="diagnostics-body${autoOpen ? '' : ' hidden'}">
         <div class="diagnostics-grid">
           <div>
-            <h5>Amostra da Relação GRCON</h5>
-            <table class="mini-table"><thead><tr><th>Como está no arquivo</th><th>Chave normalizada</th></tr></thead><tbody>${rows(relationSamples, false)}</tbody></table>
+            <h5>Exemplos da Relação GRCON</h5>
+            <table class="mini-table"><thead><tr><th>Documento</th><th>Forma comparada</th></tr></thead><tbody>${rows(relationSamples, false)}</tbody></table>
           </div>
           <div>
-            <h5>Amostra das LDs carregadas</h5>
-            <table class="mini-table"><thead><tr><th>Como está no arquivo</th><th>Chave normalizada</th><th>Arquivo</th></tr></thead><tbody>${rows(ldSamples, true)}</tbody></table>
+            <h5>Exemplos das LDs carregadas</h5>
+            <table class="mini-table"><thead><tr><th>Documento</th><th>Forma comparada</th><th>Arquivo</th></tr></thead><tbody>${rows(ldSamples, true)}</tbody></table>
           </div>
         </div>
         <p class="diagnostics-hint">
-          A correspondência exige que a <strong>chave normalizada</strong> seja idêntica nos dois lados. Se os
-          documentos parecem o mesmo a olho nu mas a chave difere — prefixo, sufixo, zero à esquerda, espaço,
-          extensão diferente — essa é a causa. Ajuste a coluna de Documento na Etapa 2 se ela estiver apontando
-          para o campo errado.
+          Dois documentos só casam quando a coluna "Forma comparada" é idêntica nos dois lados. Se eles parecem
+          o mesmo mas essa coluna está diferente — por causa de um prefixo, espaço ou zero a mais — é por isso
+          que não foi encontrado. Confira a coluna de Documento escolhida na Etapa 2.
         </p>
       </div>`;
 
@@ -655,7 +658,6 @@
   function renderDownloads(result) {
     const s = engine.state.analysis.stats;
     const outputs = result.outputs;
-    const totalWrites = outputs.reduce((sum, o) => sum + o.grdtWrites + o.dateWrites, 0);
     const reproved = outputs.filter((o) => o.integrity !== 'APROVADA');
 
     const ok = !result.failures.length;
@@ -671,23 +673,22 @@
         ${ok ? 'Atualização concluída com integridade aprovada' : 'Atualização concluída com pendências'}
       </h4>
       <p>
-        ${formatNumber(outputs.length)} LD(s) gerada(s) · ${formatNumber(totalWrites)} célula(s) autorizada(s) gravada(s) ·
-        ${formatNumber(s.missing)} documento(s) pertencem a outra LD · ${formatNumber(s.invalidDates)} data(s) de postagem inválida(s)
-        (Data Efetiva de Emissão preservada) · ${formatNumber(s.unchanged)} item(ns) já estavam corretos e não foram regravados.
+        ${formatNumber(outputs.length)} planilha(s) atualizada(s) · ${formatNumber(s.willChange)} documento(s) alterado(s) ·
+        ${formatNumber(s.missing)} não encontrado(s) · ${formatNumber(s.invalidDates)} com data inválida na relação (data da LD mantida) ·
+        ${formatNumber(s.unchanged)} já estavam certos.
       </p>
-      <p class="hash">Hash SHA-256 do pacote: <code>${esc(result.packageHash)}</code></p>
-      ${reproved.length ? `<p class="bad">Atenção: ${reproved.length} arquivo(s) não passaram na auditoria e não foram incluídos.</p>` : ''}
+      ${reproved.length ? `<p class="bad">Atenção: ${reproved.length} arquivo(s) não passaram na conferência e não foram incluídos.</p>` : ''}
       ${result.failures.length ? `<p class="bad">${result.failures.map((f) => `${esc(f.file)}: ${esc(f.error)}`).join('<br>')}</p>` : ''}
     `;
 
     const items = [
       ...outputs.map((o) => ({
         name: o.name,
-        meta: `${formatBytes(o.size)} · ${o.grdtWrites} GRDT · ${o.dateWrites} data(s) · integridade ${o.integrity}`,
+        meta: `${formatBytes(o.size)} · ${o.grdtWrites} GRDT e ${o.dateWrites} data(s) atualizadas`,
         blob: new Blob([o.bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
       })),
-      { name: 'RELATORIO_AUDITORIA_VINCULA.xlsx', meta: 'Planilha de auditoria completa', blob: result.auditBlob },
-      { name: 'LOG_VINCULA.json', meta: 'Log estruturado da execução', blob: result.logBlob },
+      { name: 'RELATORIO_AUDITORIA_VINCULA.xlsx', meta: 'Planilha com o antes e depois de cada documento', blob: result.auditBlob },
+      { name: 'LOG_VINCULA.json', meta: 'Detalhes técnicos, para conferência ou TI', blob: result.logBlob },
     ];
 
     $('downloadList').innerHTML = items
@@ -888,19 +889,16 @@
   $('appVersion').textContent = 'v' + V.VERSION;
   refreshStepsNav();
 
+  // O modo "rápido" (Web Workers) é o padrão e não precisa de selo — só o
+  // modo alternativo é informação que o usuário se beneficia de saber
+  // (processamento mais lento, mas o resultado é idêntico).
   engine.pool.ready().then((mode) => {
+    if (mode === 'worker') return;
     const badge = $('modeBadge');
-    if (mode === 'worker') {
-      badge.textContent = `${engine.pool.size} workers paralelos`;
-      badge.classList.add('ok');
-    } else {
-      badge.textContent = 'Modo contingência (sem workers)';
-      badge.classList.add('warn');
-      badge.title =
-        'Web Workers indisponíveis neste contexto' +
-        (engine.pool.fallbackReason ? ` (${engine.pool.fallbackReason})` : '') +
-        '. O processamento roda na própria página, cedendo o controle entre as etapas. Publique a pasta em um servidor para habilitar o paralelismo.';
-    }
+    badge.textContent = 'Modo alternativo (pode ser mais lento)';
+    badge.classList.remove('hidden');
+    badge.classList.add('warn');
+    badge.title = 'O processamento acontece na mesma tela, um pouco mais devagar. O resultado é o mesmo.';
   });
 
   // Exposto para diagnóstico no console do navegador.

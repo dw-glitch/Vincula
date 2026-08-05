@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.0.4
+
+Limpeza de linguagem na interface: menos jargão técnico, menos informação que só um
+desenvolvedor usaria no dia a dia. Nenhuma mudança de comportamento ou de motor.
+
+- Removido o hash SHA-256 da lista de arquivos e da tela de conclusão — continua no
+  relatório e no log exportável, para quem precisar dele, mas não polui a tela principal.
+- Selo "X workers paralelos" removido do topo. Só existe selo quando algo realmente diferente
+  está acontecendo (modo alternativo, mais lento) — no caso normal, nada aparece.
+- Texto de apresentação simplificado: sem "índice de acesso direto" nem outros termos de
+  implementação; "navegador"/"servidor" viraram "seu computador" em todo o app.
+- Painel de diagnóstico reescrito em linguagem direta: "chave normalizada" virou
+  "forma comparada"; título mudou para "Por que um documento não foi encontrado?".
+- Opção de correspondência flexível reescrita sem exemplos em formato de código.
+- Selos de "confiança da detecção" (alta/média/baixa) viraram frases diretas: "Colunas
+  identificadas" / "Confira as colunas" / "Revise as colunas".
+- Barras de progresso renomeadas: "Indexação" → "Preparação", "Compactação ZIP" → "Finalização".
+- Resumo da Etapa 4 e de cada arquivo gerado reescrito com números que importam ao usuário
+  (documentos alterados, GRDT e datas atualizadas) no lugar de contagem de células e status de
+  integridade que já é implícito por aquele arquivo estar na lista.
+
 ## 2.0.3
 
 Correspondência flexível (opcional) e uma correção de integridade de arquivo.

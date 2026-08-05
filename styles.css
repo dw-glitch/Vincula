@@ -197,7 +197,7 @@ button, input, select { font: inherit; }
 .file-list { display: grid; gap: 6px; margin-top: 16px; max-height: 220px; overflow: auto; }
 .file-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.2fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.2fr);
   gap: 10px; align-items: center;
   padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px;
   font-size: 12px; background: #fbfdff;
@@ -205,7 +205,6 @@ button, input, select { font: inherit; }
 .file-row.bad { border-color: #f4b8b5; background: #fef7f6; }
 .file-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-row small { color: var(--mut); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-row code { font-size: 10px; color: #90a0b5; }
 
 .tag { border-radius: 6px; padding: 2px 7px; font-size: 10px; font-weight: 900; text-transform: uppercase; }
 .tag.rel { background: var(--o); color: #fff; }
@@ -361,8 +360,6 @@ td.empty { text-align: center; color: var(--mut); padding: 28px; }
 .completion h4.has-pending { color: var(--r); }
 .completion-icon { width: 24px; height: 24px; flex: none; }
 .completion p { margin: 0 0 6px; color: #426455; line-height: 1.55; }
-.completion .hash { font-size: 11px; color: #5b7a6d; overflow-wrap: anywhere; }
-.completion .hash code { background: #ffffffaa; padding: 2px 5px; border-radius: 5px; }
 .completion .bad { color: var(--r); font-weight: 700; }
 
 .download-list { display: grid; gap: 10px; max-height: 420px; overflow: auto; }
@@ -398,7 +395,6 @@ td.empty { text-align: center; color: var(--mut); padding: 28px; }
   .toolbar { min-width: 0; width: 100%; flex-direction: column; }
   .select.compact { width: 100%; }
   .file-row { grid-template-columns: auto 1fr; }
-  .file-row code { display: none; }
   .diagnostics-grid { grid-template-columns: 1fr; }
 }
 
