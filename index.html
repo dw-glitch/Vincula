@@ -185,6 +185,17 @@
       <span>Confirmo que Documento, GRDT e Data foram associados corretamente em todos os arquivos.</span>
     </label>
 
+    <label class="confirm-line option">
+      <input id="flexibleMatchingOption" type="checkbox">
+      <span>
+        <strong>Correspondência flexível</strong> — se um documento não bater por igualdade exata, tenta de novo
+        ignorando zero à esquerda, espaço e pontuação (ex.: <code>"0091"</code> ↔ <code>"91"</code>,
+        <code>"REL-001"</code> ↔ <code>"REL 001"</code>). Desligada por padrão; quando resolve algo, marca o
+        registro como "Correspondência aproximada" para conferência — nunca decide sozinha entre dois documentos
+        diferentes que colidiriam pela mesma chave.
+      </span>
+    </label>
+
     <div class="actions between">
       <button class="btn ghost back-btn" data-back="1" type="button">Voltar</button>
       <button id="analyzeBtn" class="btn primary" disabled>Analisar correspondências</button>
@@ -202,6 +213,7 @@
           <option value="ATUALIZAR">Alterados</option>
           <option value="NAO_ENCONTRADO">Não encontrados</option>
           <option value="DUPLICADO">Duplicados</option>
+          <option value="CORRESPONDENCIA_APROXIMADA">Correspondência aproximada</option>
           <option value="SEM_ALTERACAO">Sem alteração</option>
           <option value="DATA_INVALIDA">Data inválida</option>
           <option value="BLOQUEADO">Bloqueados / Erro</option>

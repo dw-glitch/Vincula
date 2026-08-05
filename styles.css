@@ -282,6 +282,9 @@ button, input, select { font: inherit; }
 }
 .confirm-line input { margin-top: 3px; transform: scale(1.15); }
 .confirm-line.critical { border-color: #efc899; background: #fff8ef; }
+.confirm-line.option { background: #fff; border-style: dashed; }
+.confirm-line.option strong { color: var(--b8); }
+.confirm-line.option code { background: var(--b1); color: var(--b8); padding: 1px 5px; border-radius: 5px; font-size: 11.5px; }
 
 /* ------------------------------------------------------------ Conferência */
 

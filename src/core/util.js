@@ -8,7 +8,7 @@
 
   const V = (scope.Vincula = scope.Vincula || {});
 
-  V.VERSION = '2.0.2';
+  V.VERSION = '2.0.3';
   V.APP_NAME = 'Vincula';
 
   /* ------------------------------------------------------------------ *
@@ -60,6 +60,29 @@
       .replace(/^['"\s]+|['"\s]+$/g, '')
       .replace(/\.(pdf|xlsx|xlsm|docx|doc|tif|tiff|jpg|png)$/i, '')
       .toUpperCase();
+  }
+
+  /**
+   * Chave "frouxa" de documento: parte da chave exata e ainda remove
+   * pontuacao/espaco interno, alem do zero a esquerda de cada BLOCO
+   * numerico original (separado por hifen, espaco, barra etc. antes de
+   * juntar tudo). "REL-0001", "REL 001" e "REL1" convergem para "REL1".
+   *
+   * O zero e removido por segmento -- nao no texto ja colado -- para nao
+   * colidir blocos que so parecem iguais depois de juntos: "007-042" e
+   * "70-42" ficam "742" e "7042", diferentes, embora ambos virem "007042"
+   * e "7042" se colados primeiro. Ainda assim, zero a esquerda as vezes E
+   * parte do codigo; por isso esta chave nunca e o padrao, so entra em
+   * jogo quando o usuario liga a correspondencia flexivel.
+   */
+  function looseDocumentKey(value) {
+    const exact = normalizeDocument(value);
+    if (!exact) return '';
+    return exact
+      .split(/[^A-Z0-9]+/)
+      .filter(Boolean)
+      .map((segment) => segment.replace(/^0+(?=\d)/, ''))
+      .join('');
   }
 
   /* ------------------------------------------------------------------ *
@@ -223,6 +246,7 @@
     normalizeHeader,
     headerTokens,
     normalizeDocument,
+    looseDocumentKey,
     columnToIndex,
     indexToColumn,
     parseRef,

@@ -518,6 +518,86 @@ async function main() {
   check('DOC-A03 com data inválida não bloqueia a GRDT', altDoc03.grdtWillChange === true);
   check('DOC-A03 preserva a data existente na LD', altDoc03.dateWillChange === false);
 
+  /* ---------------- Chave frouxa (unidade) ---------------- */
+  suite('Chave frouxa de documento (looseDocumentKey)');
+
+  equal('zero à esquerda em número puro', V.util.looseDocumentKey('0091'), V.util.looseDocumentKey('91'));
+  equal('traço vira igual a espaço', V.util.looseDocumentKey('REL-0001'), V.util.looseDocumentKey('REL 0001'));
+  equal('já sem zero coincide com a forma zerada', V.util.looseDocumentKey('REL-0001'), V.util.looseDocumentKey('REL1'));
+  check(
+    'blocos numéricos colados não colidem por acidente',
+    V.util.looseDocumentKey('REL-007-042') !== V.util.looseDocumentKey('REL-70-42'),
+    `${V.util.looseDocumentKey('REL-007-042')} vs ${V.util.looseDocumentKey('REL-70-42')}`
+  );
+  equal('vazio permanece vazio', V.util.looseDocumentKey(''), '');
+
+  /* ---------------- Correspondência flexível (opt-in) ---------------- */
+  suite('Correspondência flexível — resolve zero à esquerda/pontuação sem casar documentos diferentes');
+
+  const looseRelationRows = [
+    [
+      { text: 'DOCUMENTO', style: STYLE.HEADER },
+      { text: 'GRDT', style: STYLE.HEADER },
+      { text: 'DATA DA GERAÇÃO / POSTAGEM', style: STYLE.HEADER },
+    ],
+    [{ text: '0091' }, { text: 'GR-B01' }, { text: '04/08/2026' }],
+    [{ text: 'DOC-B02' }, { text: 'GR-B02' }, { text: '04/08/2026' }],
+    // Ambíguo de propósito: duas chaves exatas diferentes na LD colidem na
+    // mesma chave frouxa que este documento produziria.
+    [{ text: 'DOC-0005' }, { text: 'GR-C01' }, { text: '04/08/2026' }],
+    [{ text: 'DOC-EXACT' }, { text: 'GR-D01' }, { text: '04/08/2026' }],
+  ];
+  const looseLdRows = [
+    [
+      { text: 'Documento', style: STYLE.HEADER },
+      { text: 'eGRDT', style: STYLE.HEADER },
+      { text: 'Data Efetiva de Emissão', style: STYLE.HEADER },
+    ],
+    [{ text: '91' }, { text: 'ANTIGA-B01' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }],
+    [{ text: 'DOC B02' }, { text: 'ANTIGA-B02' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }],
+    [{ text: 'DOC-005' }, { text: 'ANTIGA-C01a' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }],
+    [{ text: 'DOC-5' }, { text: 'ANTIGA-C01b' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }],
+    [{ text: 'DOC-EXACT' }, { text: 'ANTIGA-D01' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }],
+  ];
+
+  const looseRelationBytes = await buildWorkbook(JSZip, [{ name: 'Relação', rows: looseRelationRows, options: {} }]);
+  const looseLdBytes = await buildWorkbook(JSZip, [{ name: 'Dados', rows: looseLdRows, options: {} }]);
+
+  const looseRelMeta = await V.tasks.open({ fileId: 'loose-rel', name: 'REL_LOOSE.xlsx', bytes: looseRelationBytes, hash: 'loose-rel', profile: 'relation' });
+  const looseLdMeta = await V.tasks.open({ fileId: 'loose-ld', name: 'LD_LOOSE.xlsx', bytes: looseLdBytes, hash: 'loose-ld', profile: 'ld' });
+  const looseRelIndex = await V.tasks.indexRelation({ fileId: 'loose-rel', mapping: looseRelMeta.mapping });
+  const looseLdIndex = await V.tasks.indexLd({ fileId: 'loose-ld', mapping: looseLdMeta.mapping });
+  const looseGlobalIndex = V.indexer.buildGlobalIndex([looseLdIndex]);
+  const looseFiles = new Map([['loose-ld', { id: 'loose-ld', name: 'LD_LOOSE.xlsx', sheetName: 'Dados' }]]);
+
+  // Desligada (padrão): nada além de correspondência exata é aceito.
+  const strictRun = V.analyzer.analyze(looseRelIndex, looseGlobalIndex, looseFiles, { flexibleMatching: false });
+  equal('desligada: só o documento com chave idêntica é encontrado', strictRun.stats.found, 1);
+  const strictExact = strictRun.records.find((r) => r.document === 'DOC-EXACT');
+  equal('desligada: DOC-EXACT casa normalmente', strictExact.status, 'ATUALIZAR');
+  const strictLoose1 = strictRun.records.find((r) => r.document === '0091');
+  equal('desligada: "0091" fica não encontrado sem a opção', strictLoose1.status, 'NAO_ENCONTRADO');
+
+  // Ligada: resolve os casos inequívocos, preserva o ambíguo como pendência.
+  const looseRun = V.analyzer.analyze(looseRelIndex, looseGlobalIndex, looseFiles, { flexibleMatching: true });
+  equal('ligada: 3 encontrados (2 aproximados + 1 exato); ambíguo continua fora', looseRun.stats.found, 3);
+  equal('ligada: só o ambíguo permanece não encontrado', looseRun.missing.length, 1);
+  equal('ligada: o não encontrado é o caso ambíguo', looseRun.missing[0].document, 'DOC-0005');
+  check('ligada: motivo do ambíguo explica a ambiguidade', looseRun.missing[0].reason.includes('mais de um documento diferente'));
+
+  const resolved91 = looseRun.records.find((r) => r.document === '0091');
+  check('ligada: "0091" resolvido via chave frouxa', resolved91.status === 'ATUALIZAR' && resolved91.flags.includes('CORRESPONDENCIA_APROXIMADA'));
+  equal('ligada: GRDT de "0091" seria atualizada', resolved91.afterGrdt, 'GR-B01');
+  check('ligada: motivo cita os dois textos originais', resolved91.reason.includes('0091') && resolved91.reason.includes('91'));
+
+  const resolvedB02 = looseRun.records.find((r) => r.document === 'DOC-B02');
+  check('ligada: "DOC-B02" resolvido contra "DOC B02"', resolvedB02.status === 'ATUALIZAR' && resolvedB02.flags.includes('CORRESPONDENCIA_APROXIMADA'));
+
+  const looseExact = looseRun.records.find((r) => r.document === 'DOC-EXACT');
+  check('ligada: correspondência exata não ganha o marcador de aproximada', !looseExact.flags.includes('CORRESPONDENCIA_APROXIMADA'));
+
+  check('filtro por correspondência aproximada retorna só os aproximados', looseRun.records.filter((r) => V.analyzer.matchesFilter(r, 'CORRESPONDENCIA_APROXIMADA')).length === 2);
+
   /* ---------------- Liberação ---------------- */
   suite('Gerenciamento de memória');
   const statsBefore = V.tasks.stats();

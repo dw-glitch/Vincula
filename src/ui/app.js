@@ -467,6 +467,10 @@
       ['Sem alteração', s.unchanged, ''],
       ['Datas inválidas', s.invalidDates, s.invalidDates ? 'warn' : 'ok'],
     ];
+    // Só aparece quando a correspondência flexível estava ligada e resolveu
+    // algo — na maioria das execuções (opção desligada) o valor é sempre 0
+    // e não merece ocupar espaço no resumo.
+    if (s.approximateMatches) cards.push(['Correspondência aproximada', s.approximateMatches, 'warn']);
     $('summaryCards').innerHTML = cards
       .map((c) => `<div class="summary-card ${c[2]}"><b>${formatNumber(c[1])}</b><span>${c[0]}</span></div>`)
       .join('');
@@ -730,11 +734,15 @@
     setBusy(true);
     resetStages();
     try {
-      await engine.analyze();
+      const flexibleMatching = $('flexibleMatchingOption').checked;
+      await engine.analyze({ flexibleMatching });
       renderAnalysis();
       goToStep(3);
       const s = engine.state.analysis.stats;
-      toast(`${formatNumber(s.found)}/${formatNumber(s.relationDocuments)} documentos localizados.`);
+      toast(
+        `${formatNumber(s.found)}/${formatNumber(s.relationDocuments)} documentos localizados.` +
+          (s.approximateMatches ? ` ${formatNumber(s.approximateMatches)} por correspondência aproximada.` : '')
+      );
     } catch (error) {
       toast(error.message);
       $('progressDetail').textContent = error.message;

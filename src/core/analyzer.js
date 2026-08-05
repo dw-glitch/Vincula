@@ -9,7 +9,7 @@
   'use strict';
 
   const V = (scope.Vincula = scope.Vincula || {});
-  const { squash } = V.util;
+  const { squash, looseDocumentKey } = V.util;
   const D = V.dates;
 
   const STATUS = {
@@ -34,6 +34,7 @@
     DATA_INVALIDA: 'DATA_INVALIDA',
     GRDT_AUSENTE: 'GRDT_AUSENTE',
     DATA_TEXTO: 'DATA_TEXTO',
+    CORRESPONDENCIA_APROXIMADA: 'CORRESPONDENCIA_APROXIMADA',
   };
 
   const FLAG_LABEL = {
@@ -42,6 +43,7 @@
     DATA_INVALIDA: 'Data da postagem inválida',
     GRDT_AUSENTE: 'GRDT ausente na relação',
     DATA_TEXTO: 'Data convertida de texto para data do Excel',
+    CORRESPONDENCIA_APROXIMADA: 'Correspondência aproximada — confira',
   };
 
   /** Data já presente na LD, normalizada para comparação. */
@@ -54,20 +56,43 @@
    * @param {object} relation  índice da Relação GRCON
    * @param {object} global    índice global das LDs (documento → ocorrências)
    * @param {object} files     mapa fileId → {id, name, sheetName}
-   * @param {{convertTextDates?:boolean}} options
+   * @param {{convertTextDates?:boolean, flexibleMatching?:boolean}} options
    */
   function analyze(relation, global, files, options = {}) {
     const convertTextDates = options.convertTextDates !== false;
+    const flexibleMatching = options.flexibleMatching === true;
 
     const records = [];
     const missing = [];
     const invalidDates = [];
     const plans = new Map();
     let sequence = 0;
+    let approximateCount = 0;
 
     for (const [document, source] of relation.selected) {
-      const matches = global.byDocument.get(document);
+      let matches = global.byDocument.get(document);
       const duplicatedInRelation = (relation.duplicates.find((d) => d.document === document)?.count || 0) > 1;
+
+      // Correspondência exata falhou: com a correspondência flexível ligada,
+      // tenta a chave frouxa (zero à esquerda / pontuação / espaço ignorados).
+      // Só resolve quando existe exatamente UMA chave exata diferente sob a
+      // mesma chave frouxa — ambíguo é tratado como não encontrado, nunca
+      // como palpite silencioso.
+      let approximateSource = null;
+      let ambiguousLoose = false;
+      if ((!matches || !matches.length) && flexibleMatching) {
+        const loose = looseDocumentKey(document);
+        const candidates = loose ? global.byLooseKey.get(loose) : null;
+        if (candidates && candidates.length) {
+          const distinct = [...new Set(candidates)];
+          if (distinct.length === 1 && distinct[0] !== document) {
+            approximateSource = distinct[0];
+            matches = global.byDocument.get(approximateSource);
+          } else if (distinct.length > 1) {
+            ambiguousLoose = true;
+          }
+        }
+      }
 
       if (!matches || !matches.length) {
         const record = {
@@ -86,7 +111,9 @@
           afterDate: source.dateText,
           grdtWillChange: false,
           dateWillChange: false,
-          reason: 'Documento pertence a outra LD.',
+          reason: ambiguousLoose
+            ? 'Documento pertence a outra LD. Correspondência flexível encontrou mais de um documento diferente com a mesma chave aproximada; não resolvido automaticamente para evitar juntar documentos errados.'
+            : 'Documento pertence a outra LD.',
         };
         records.push(record);
         missing.push(record);
@@ -99,6 +126,7 @@
         const flags = [];
         if (duplicatedInRelation) flags.push(FLAG.DUPLICADO_RELACAO);
         if (matches.length > 1) flags.push(FLAG.DUPLICADO_LD);
+        if (approximateSource) flags.push(FLAG.CORRESPONDENCIA_APROXIMADA);
 
         const grdtValue = squash(source.grdt);
         const hasGrdt = grdtValue !== '' && !D.isBlankDateToken(grdtValue);
@@ -134,6 +162,13 @@
         }
         if (!hasGrdt) reasons.push('GRDT sem valor válido na relação; a GRDT da LD é preservada.');
         if (entry.grdtHasFormula && grdtWillChange) reasons.push('Célula de GRDT contém fórmula; verificação aplicada na gravação.');
+        if (approximateSource) {
+          reasons.push(
+            `Correspondência flexível: relação tem "${source.rawDocument}", LD tem "${entry.rawDocument}" — ` +
+              'chaves normalizadas diferem só em zero à esquerda, espaço ou pontuação. Confira antes de confiar.'
+          );
+          approximateCount++;
+        }
         if (!grdtWillChange && !dateWillChange) reasons.push('Valores já conferem; nenhuma escrita será executada.');
 
         const willChange = grdtWillChange || dateWillChange;
@@ -189,6 +224,7 @@
       invalidDates: invalidDates.length,
       grdtWrites: changing.filter((r) => r.grdtWillChange).length,
       dateWrites: changing.filter((r) => r.dateWillChange).length,
+      approximateMatches: approximateCount,
     };
 
     return { records, missing, invalidDates, plans, stats };
@@ -201,6 +237,7 @@
       return record.flags.includes(FLAG.DUPLICADO_RELACAO) || record.flags.includes(FLAG.DUPLICADO_LD);
     }
     if (filter === 'DATA_INVALIDA') return record.flags.includes(FLAG.DATA_INVALIDA);
+    if (filter === 'CORRESPONDENCIA_APROXIMADA') return record.flags.includes(FLAG.CORRESPONDENCIA_APROXIMADA);
     return record.status === filter;
   }
 

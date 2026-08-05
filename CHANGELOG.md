@@ -1,5 +1,38 @@
 # Changelog
 
+## 2.0.3
+
+Correspondência flexível (opcional) e uma correção de integridade de arquivo.
+
+### Novo: correspondência flexível
+
+- A comparação padrão continua exigindo igualdade exata da chave normalizada — essa garantia não
+  muda. Mas a causa mais comum de "documento não encontrado" em uso real é zero à esquerda,
+  espaço interno ou pontuação diferente entre a Relação e a LD (ex.: `"0091"` vs `"91"`, ou
+  Excel removendo silenciosamente zeros à esquerda de uma célula numérica). Agora existe uma
+  opção — desligada por padrão, na Etapa 2 — que tenta de novo por uma "chave frouxa" quando a
+  exata falha.
+- A chave frouxa remove zero à esquerda **por segmento** (respeitando onde estavam os hífens/
+  espaços originais antes de juntar tudo), não no texto inteiro colado — isso evita que
+  `"007-042"` e `"70-42"` colidam por acidente só porque, juntos, um vira prefixo do outro.
+- Quando a chave frouxa aponta para **mais de um** documento diferente na LD, o sistema não
+  escolhe: mantém como não encontrado e explica a ambiguidade no motivo, para nunca gravar no
+  documento errado silenciosamente.
+- Toda correspondência resolvida assim recebe o marcador "Correspondência aproximada — confira",
+  filtrável na Etapa 3, com o texto original dos dois lados no motivo para conferência antes de
+  gerar.
+- `src/core/headers.js`/`tasks.js`: aviso de cabeçalho não reconhecido também revisado.
+
+### Correção de integridade
+
+- `src/core/indexer.js` continha um byte nulo (`\x00`) isolado dentro de um literal de template,
+  resquício de uma edição anterior — fazia o Git tratar o arquivo como binário nos diffs. Sem
+  efeito funcional (era usado só como separador interno em uma verificação de duplicidade), mas
+  corrigido para um espaço, como sempre foi a intenção.
+
+Testes: 161/161 (18 novos, cobrindo a chave frouxa isoladamente e a correspondência flexível de
+ponta a ponta — incluindo o caso ambíguo, verificado também via geração real do arquivo final).
+
 ## 2.0.2
 
 Correção de correspondência de documentos e blindagem do modo sem Web Worker.
