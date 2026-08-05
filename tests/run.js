@@ -463,6 +463,61 @@ async function main() {
   const packedLd = await pkgZip.file(`LDs_ATUALIZADAS/${applied.outputName}`).async('uint8array');
   equal('LD sobrevive ao empacotamento', await V.util.sha256Hex(packedLd), applied.outputHash);
 
+  /* ---------------- Variação real de export: data efetiva na 1ª coluna da relação ---------------- */
+  suite('Relação GRCON com "Data Efetiva de Emissão" na 1ª coluna (variação de export)');
+
+  // Alguns exports de GRCON não usam "DATA DA GERAÇÃO / POSTAGEM": a coluna de
+  // data já vem rotulada "Data Efetiva de Emissão", como primeira coluna da
+  // aba de documentos. O detector precisa reconhecer essa grafia também na
+  // relação (não só na LD) sem exigir remapeamento manual.
+  const altRelationRows = [
+    [
+      { text: 'Data Efetiva de Emissão', style: STYLE.HEADER },
+      { text: 'Documento', style: STYLE.HEADER },
+      { text: 'GRDT', style: STYLE.HEADER },
+    ],
+    [{ text: '04/08/2026' }, { text: 'DOC-A01' }, { text: 'GR-A01' }],
+    [{ text: '05/08/2026' }, { text: 'DOC-A02' }, { text: 'GR-A02' }],
+    [{ text: '-' }, { text: 'DOC-A03' }, { text: 'GR-A03' }],
+  ];
+  const altLdRows = [
+    [
+      { text: 'Documento', style: STYLE.HEADER },
+      { text: 'GRDT', style: STYLE.HEADER },
+      { text: 'Data Efetiva de Emissão', style: STYLE.HEADER },
+    ],
+    [{ text: 'DOC-A01' }, { text: 'ANTIGA-1' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }],
+    [{ text: 'DOC-A02' }, { text: 'ANTIGA-2' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }],
+    [{ text: 'DOC-A03' }, { text: 'ANTIGA-3' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }],
+  ];
+
+  const altRelationBytes = await buildWorkbook(JSZip, [{ name: 'Documentos', rows: altRelationRows, options: {} }]);
+  const altLdBytes = await buildWorkbook(JSZip, [{ name: 'Dados', rows: altLdRows, options: {} }]);
+
+  const altRelMeta = await V.tasks.open({ fileId: 'alt-rel', name: 'GRCON_ALT.xlsx', bytes: altRelationBytes, hash: 'alt-rel', profile: 'relation' });
+  equal('coluna A (1ª) reconhecida como data da relação', altRelMeta.mapping.dateCol, 1);
+  equal('coluna Documento reconhecida', altRelMeta.mapping.documentCol, 2);
+  equal('coluna GRDT reconhecida', altRelMeta.mapping.grdtCol, 3);
+  equal('confiança alta mesmo com "Data Efetiva de Emissão" na relação', altRelMeta.mapping.confidence, 'alta');
+
+  const altLdMeta = await V.tasks.open({ fileId: 'alt-ld', name: 'LD_ALT.xlsx', bytes: altLdBytes, hash: 'alt-ld', profile: 'ld' });
+  const altRelIndex = await V.tasks.indexRelation({ fileId: 'alt-rel', mapping: altRelMeta.mapping });
+  check('sem aviso de cabeçalho não reconhecido', altRelIndex.headerWarning === null, altRelIndex.headerWarning);
+
+  const altLdIndex = await V.tasks.indexLd({ fileId: 'alt-ld', mapping: altLdMeta.mapping });
+  const altGlobalIndex = V.indexer.buildGlobalIndex([altLdIndex]);
+  const altFiles = new Map([['alt-ld', { id: 'alt-ld', name: 'LD_ALT.xlsx', sheetName: 'Dados' }]]);
+  const altAnalysis = V.analyzer.analyze(altRelIndex, altGlobalIndex, altFiles);
+
+  equal('todos os 3 documentos são encontrados na LD', altAnalysis.stats.found, 3);
+  equal('nenhum documento fica sem encontrar', altAnalysis.missing.length, 0);
+  const altDoc01 = altAnalysis.records.find((r) => r.document === 'DOC-A01');
+  equal('GRDT de DOC-A01 seria atualizada', altDoc01.afterGrdt, 'GR-A01');
+  equal('data de DOC-A01 vem da coluna A da relação', altDoc01.afterDate, '04/08/2026');
+  const altDoc03 = altAnalysis.records.find((r) => r.document === 'DOC-A03');
+  check('DOC-A03 com data inválida não bloqueia a GRDT', altDoc03.grdtWillChange === true);
+  check('DOC-A03 preserva a data existente na LD', altDoc03.dateWillChange === false);
+
   /* ---------------- Liberação ---------------- */
   suite('Gerenciamento de memória');
   const statsBefore = V.tasks.stats();

@@ -301,6 +301,34 @@ button, input, select { font: inherit; }
 .banner.success { background: #e9f8f1; color: var(--g); border: 1px solid #a8dec8; }
 .banner.warning { background: #fff8ef; color: var(--a); border: 1px solid #efc899; }
 
+/* --------------------------------------------------------- Diagnóstico */
+
+.diagnostics { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 16px; background: #fbfdff; overflow: hidden; }
+.diagnostics.alert { border-color: #f0b4b0; background: #fef7f6; }
+
+.diagnostics-head {
+  width: 100%; border: 0; background: transparent; cursor: pointer;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 13px 16px; text-align: left;
+}
+.diagnostics-head strong { display: block; font-size: 13.5px; color: var(--ink); }
+.diagnostics.alert .diagnostics-head strong { color: var(--r); }
+.diagnostics-head small { color: var(--mut); font-size: 12px; }
+.diagnostics-head .chevron { width: 9px; height: 9px; border-right: 2px solid #8896aa; border-bottom: 2px solid #8896aa; transform: rotate(45deg); flex: none; transition: transform .15s; }
+.diagnostics-head[aria-expanded="false"] .chevron { transform: rotate(-45deg); }
+
+.diagnostics-body { padding: 0 16px 16px; }
+.diagnostics-body.hidden { display: none; }
+.diagnostics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.diagnostics-grid h5 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--mut); }
+
+.mini-table { width: 100%; min-width: 0; border-collapse: collapse; font-size: 11.5px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.mini-table th { position: static; background: #eef2f7; color: var(--ink); font-size: 10px; text-transform: uppercase; padding: 6px 8px; }
+.mini-table td { padding: 6px 8px; border-bottom: 1px solid #eef1f6; word-break: break-all; }
+.mini-table code { background: #eef2f7; padding: 1px 5px; border-radius: 5px; font-size: 11px; }
+
+.diagnostics-hint { margin: 12px 0 0; font-size: 12px; color: var(--mut); line-height: 1.55; }
+
 .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 13px; max-height: 620px; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 1240px; }
 th { position: sticky; top: 0; background: var(--b95); color: #fff; padding: 11px; text-align: left; z-index: 1; }
@@ -368,6 +396,7 @@ td.empty { text-align: center; color: var(--mut); padding: 28px; }
   .select.compact { width: 100%; }
   .file-row { grid-template-columns: auto 1fr; }
   .file-row code { display: none; }
+  .diagnostics-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 620px) {

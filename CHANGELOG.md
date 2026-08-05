@@ -1,5 +1,39 @@
 # Changelog
 
+## 2.0.2
+
+Correção de correspondência de documentos e blindagem do modo sem Web Worker.
+
+### Correção
+
+- **A Relação GRCON nem sempre usa "DATA DA GERAÇÃO / POSTAGEM".** Alguns exports já rotulam
+  essa coluna como "Data Efetiva de Emissão" — mesma coluna, nome diferente. O detector da
+  relação reconhecia apenas a primeira grafia; a segunda era explicitamente rejeitada (regra de
+  exclusão que existe para não confundir as duas colunas *dentro da LD*, mas que não deveria
+  valer para a relação, cuja fonte de data pode ter qualquer um dos dois nomes). Corrigido em
+  `src/core/headers.js` com um perfil de data específico para a relação, que aceita as duas
+  grafias — testado inclusive com a data na primeira coluna da planilha, como no caso reportado.
+- Isso pode ter sido a causa (ou parte dela) de relatos de "nenhum documento encontrado": quando
+  a coluna de data da relação não era reconhecida, a etapa de mapeamento ficava incompleta e o
+  restante da conferência não refletia o que o usuário esperava.
+
+### Novo: diagnóstico de correspondência
+
+- Quando a análise encontra poucos ou nenhum documento, a Etapa 3 agora abre automaticamente um
+  painel comparando, lado a lado, uma amostra real de documentos da Relação e das LDs — o texto
+  exatamente como está no arquivo e a chave normalizada usada para casar os dois lados. A causa
+  mais comum de "não encontrado" (prefixo, sufixo, zero à esquerda, espaço, extensão diferente)
+  fica visível em segundos, sem precisar investigar o arquivo inteiro. O painel também fica
+  disponível sob demanda (recolhido) quando a maioria dos documentos é encontrada normalmente.
+
+### Validado: ambiente sem Web Workers
+
+- Muitas redes corporativas bloqueiam o script do worker no proxy/firewall — cenário diferente de
+  "o navegador não suporta Worker". Testado especificamente esse caso (requisição do arquivo do
+  worker abortada, API `Worker` presente): o sistema detecta a falha e cai para o modo de
+  contingência em menos de 1 segundo, e o fluxo completo (leitura, mapeamento, análise, geração)
+  funciona normalmente, sem erros de console.
+
 ## 2.0.1
 
 Identidade visual e refinamento de UX/UI, sem mudanças no motor de processamento.

@@ -237,12 +237,17 @@
     }
   }
 
-  /** Confere se a coluna de data da relação é mesmo a de geração/postagem. */
+  /**
+   * Confere se a coluna de data associada à relação é reconhecível como a
+   * data-fonte do documento — aceita tanto "geração/postagem" quanto
+   * "efetiva de emissão", já que exports diferentes de GRCON rotulam essa
+   * mesma coluna de formas diferentes.
+   */
   function validatePostingHeader(entry, mapping) {
     const info = entry.meta.sheets.find((s) => s.path === mapping.sheetPath);
     if (!info || !info.grid) return { ok: true, header: '' };
     const header = gridLookup(info.grid)(Number(mapping.headerRow), Number(mapping.dateCol));
-    return { ok: V.headers.isPostingDateHeader(header), header: normalizeHeader(header) };
+    return { ok: V.headers.isRelationDateHeader(header), header: normalizeHeader(header) };
   }
 
   async function indexRelation({ fileId, mapping }, report) {
@@ -258,7 +263,7 @@
         fileId,
         name: entry.name,
         sheetName: sheet.name,
-        headerWarning: check.ok ? null : `A coluna de data associada ("${check.header}") não é reconhecida como "DATA DA GERAÇÃO / POSTAGEM".`,
+        headerWarning: check.ok ? null : `A coluna de data associada ("${check.header}") não é reconhecida como data da Relação GRCON (postagem/geração ou efetiva de emissão).`,
         rows: index.rows,
         selected: index.selected,
         duplicates: index.duplicates,

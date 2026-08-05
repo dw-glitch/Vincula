@@ -486,10 +486,92 @@
           s.willChange
         )} atualizações previstas.</strong> Nenhuma pendência: todos os documentos localizados possuem data válida.`;
 
+    renderMatchDiagnostics(analysis, s.relationDocuments > 0 && s.found / s.relationDocuments < 0.05);
+
     $('generateConfirm').checked = false;
     $('generateBtn').disabled = true;
     ui.page = 1;
     applyFilter();
+  }
+
+  /**
+   * Amostra lado a lado de chaves de documento — texto como está no arquivo
+   * e a chave normalizada usada para casar Relação × LD. Quando quase nada
+   * é encontrado, a causa quase sempre aparece aqui: as duas colunas de
+   * "chave normalizada" parecem o mesmo documento, mas não são idênticas
+   * (prefixo, sufixo, zero à esquerda, extensão, espaço extra).
+   */
+  function sampleMatchData(analysis, limit) {
+    const relationSamples = analysis.relationIndex.rows
+      .slice(0, limit)
+      .map((r) => ({ raw: r.rawDocument, normalized: r.document }));
+
+    const ldSamples = [];
+    for (const [normalized, entries] of analysis.globalIndex.byDocument) {
+      for (const entry of entries) {
+        const file = analysis.files.get(entry.fileId);
+        ldSamples.push({ raw: entry.rawDocument, normalized, file: file ? file.name : entry.fileId });
+        if (ldSamples.length >= limit) break;
+      }
+      if (ldSamples.length >= limit) break;
+    }
+    return { relationSamples, ldSamples };
+  }
+
+  function renderMatchDiagnostics(analysis, autoOpen) {
+    const container = $('matchDiagnostics');
+    const { relationSamples, ldSamples } = sampleMatchData(analysis, 8);
+
+    if (!relationSamples.length || !ldSamples.length) {
+      container.classList.add('hidden');
+      container.innerHTML = '';
+      return;
+    }
+
+    const rows = (list, withFile) =>
+      list
+        .map(
+          (x) =>
+            `<tr><td>${esc(x.raw) || '<span class="reason-empty">(vazio)</span>'}</td><td><code>${esc(x.normalized) || '—'}</code></td>${
+              withFile ? `<td>${esc(x.file)}</td>` : ''
+            }</tr>`
+        )
+        .join('');
+
+    container.classList.remove('hidden');
+    container.classList.toggle('alert', !!autoOpen);
+    container.innerHTML = `
+      <button type="button" class="diagnostics-head" id="toggleDiagnostics" aria-expanded="${autoOpen ? 'true' : 'false'}">
+        <span>
+          <strong>${autoOpen ? 'Poucas correspondências — compare as chaves abaixo' : 'Diagnóstico de correspondência'}</strong>
+          <small>Exemplos reais de como cada documento vira a chave usada para casar Relação × LD.</small>
+        </span>
+        <span class="chevron" aria-hidden="true"></span>
+      </button>
+      <div class="diagnostics-body${autoOpen ? '' : ' hidden'}">
+        <div class="diagnostics-grid">
+          <div>
+            <h5>Amostra da Relação GRCON</h5>
+            <table class="mini-table"><thead><tr><th>Como está no arquivo</th><th>Chave normalizada</th></tr></thead><tbody>${rows(relationSamples, false)}</tbody></table>
+          </div>
+          <div>
+            <h5>Amostra das LDs carregadas</h5>
+            <table class="mini-table"><thead><tr><th>Como está no arquivo</th><th>Chave normalizada</th><th>Arquivo</th></tr></thead><tbody>${rows(ldSamples, true)}</tbody></table>
+          </div>
+        </div>
+        <p class="diagnostics-hint">
+          A correspondência exige que a <strong>chave normalizada</strong> seja idêntica nos dois lados. Se os
+          documentos parecem o mesmo a olho nu mas a chave difere — prefixo, sufixo, zero à esquerda, espaço,
+          extensão diferente — essa é a causa. Ajuste a coluna de Documento na Etapa 2 se ela estiver apontando
+          para o campo errado.
+        </p>
+      </div>`;
+
+    $('toggleDiagnostics').onclick = () => {
+      const body = container.querySelector('.diagnostics-body');
+      const collapsed = body.classList.toggle('hidden');
+      $('toggleDiagnostics').setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    };
   }
 
   function applyFilter() {

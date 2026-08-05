@@ -97,6 +97,22 @@
     },
   };
 
+  /**
+   * A Relação GRCON nem sempre rotula sua própria coluna de data como
+   * "geração/postagem" — alguns exports já chamam essa coluna de
+   * "Data Efetiva de Emissão", com o mesmo sentido de "a data que vale para
+   * este documento". Um campo à parte reconhece as duas grafias sem herdar a
+   * exclusão mútua que existe entre elas (necessária do lado da LD, onde as
+   * duas podem coexistir como colunas diferentes).
+   */
+  FIELDS.relationDate = {
+    label: 'Data (Relação GRCON)',
+    exact: [...FIELDS.datePosting.exact, ...FIELDS.dateEffective.exact],
+    required: [['DATA', 'DT'], ['GERACAO', 'POSTAGEM', 'EFETIVA', 'EFETIVO', 'EMISSAO']],
+    optional: ['GERACAO', 'POSTAGEM', 'EFETIVA', 'EMISSAO'],
+    forbidden: ['VENCIMENTO', 'PREVISTA', 'RECEBIMENTO', 'ENVIO'],
+  };
+
   // Índices pré-normalizados: comparação de cabeçalho é caminho quente.
   for (const field of Object.values(FIELDS)) {
     field.exactSet = new Set(field.exact.map(normalizeHeader));
@@ -148,8 +164,13 @@
     return scoreHeader('dateEffective', text) >= 55;
   }
 
+  /** A coluna de data reconhecida na própria Relação GRCON (postagem OU efetiva). */
+  function isRelationDateHeader(text) {
+    return scoreHeader('relationDate', text) >= 55;
+  }
+
   const PROFILES = {
-    relation: { document: 'document', grdt: 'grdt', date: 'datePosting' },
+    relation: { document: 'document', grdt: 'grdt', date: 'relationDate' },
     ld: { document: 'document', grdt: 'grdt', date: 'dateEffective' },
   };
 
@@ -214,5 +235,6 @@
     detect,
     isPostingDateHeader,
     isEffectiveDateHeader,
+    isRelationDateHeader,
   };
 })(typeof self !== 'undefined' ? self : this);
