@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.0.5
+
+Remove o painel de apresentação (título, texto explicativo e selos de garantia) da tela
+inicial — quem usa o Vincula já sabe para que ele serve. O espaço liberado foi usado para
+redesenhar a navegação de etapas.
+
+- Painel "Fluxo seguro e auditável" removido por completo: sem título, sem parágrafo
+  explicativo, sem os três selos de garantia (essas garantias já ficam explícitas nos
+  próprios pontos de confirmação, na Etapa 2 e na Etapa 3).
+- Navegação de etapas redesenhada: de botões em pílula para um indicador conectado por
+  linhas, com marcador numerado, destaque para a etapa atual e ícone de confirmação nas
+  etapas concluídas — mais compacto e com mais definição visual.
+- O app agora abre direto na tarefa: topo → navegação de etapas → conteúdo, sem bloco
+  intermediário.
+- Selo de privacidade no topo passa a aparecer também em telas pequenas (antes só aparecia
+  em telas largas), já que virou o único lugar onde essa informação existe.
+
+Testes: 161/161, sem alteração (mudança é só de interface).
+
 ## 2.0.4
 
 Limpeza de linguagem na interface: menos jargão técnico, menos informação que só um

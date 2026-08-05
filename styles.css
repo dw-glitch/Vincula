@@ -85,17 +85,7 @@ button, input, select { font: inherit; }
   box-shadow: var(--shadow);
 }
 
-.hero { padding: 28px 30px; display: flex; justify-content: space-between; gap: 32px; align-items: center; }
-.hero h2 { font-size: clamp(24px, 3vw, 36px); line-height: 1.12; margin: 8px 0 10px; color: var(--b95); }
-.hero p { max-width: 760px; margin: 0; color: var(--mut); line-height: 1.55; }
-
 .eyebrow { text-transform: uppercase; letter-spacing: .12em; color: var(--b7); font-weight: 800; font-size: 11px; }
-
-.guardrails { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; min-width: 300px; max-width: 380px; }
-.guardrails li { display: flex; align-items: center; gap: 12px; background: var(--b1); border-radius: 13px; padding: 11px 14px; }
-.guardrails svg { width: 21px; height: 21px; flex: none; color: var(--b8); }
-.guardrails span { font-size: 12.5px; line-height: 1.4; color: #3d4a5c; }
-.guardrails strong { color: var(--b9); }
 
 /* ------------------------------------------------------------- Progresso */
 
@@ -141,24 +131,46 @@ button, input, select { font: inherit; }
 
 /* ---------------------------------------------------------------- Etapas */
 
-.steps { display: flex; gap: 8px; margin: 18px 0; overflow: auto; }
+.steps { display: flex; align-items: center; margin: 4px 0 28px; padding: 4px 2px; overflow-x: auto; }
+
 .step {
-  border: 0; background: #e8edf5; color: #5a6576;
-  padding: 11px 16px; border-radius: 11px;
-  font-weight: 700; white-space: nowrap; cursor: pointer;
+  display: flex; align-items: center; gap: 10px; flex: none;
+  border: 0; background: transparent; padding: 6px 4px;
+  cursor: pointer; white-space: nowrap;
 }
-.step span { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #cfd7e5; margin-right: 7px; }
-.step.active { background: var(--b9); color: #fff; }
-.step.active span { background: var(--o); }
-.step.done { background: #e5f5ee; color: var(--g); }
-.step:disabled { opacity: .55; cursor: not-allowed; background: #eef1f6; color: #a7b1c2; }
-.step:disabled span { background: #dde3ec; }
+
+.step-dot {
+  position: relative; display: inline-grid; place-items: center;
+  width: 30px; height: 30px; flex: none; border-radius: 50%;
+  background: #eef1f6; border: 2px solid #dfe5ed; color: #8a95a6;
+  font-weight: 800; font-size: 13px;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.step-check { width: 15px; height: 15px; display: none; }
+.step.done .step-num { display: none; }
+.step.done .step-check { display: block; }
+
+.step-label { font-weight: 700; font-size: 13.5px; color: #8a95a6; transition: color .15s ease; }
+
+.step.active .step-dot { background: var(--b9); border-color: var(--b9); color: #fff; box-shadow: 0 0 0 4px var(--b1); }
+.step.active .step-label { color: var(--b9); }
+
+.step.done .step-dot { background: var(--g); border-color: var(--g); color: #fff; }
+.step.done .step-label { color: var(--g); }
+
+.step:disabled { cursor: not-allowed; }
+.step:disabled .step-dot { background: #f5f7fa; border-color: #eaeef3; color: #ccd3dd; }
+.step:disabled .step-label { color: #ccd3dd; }
+
+.step-line { flex: 0 1 64px; min-width: 20px; height: 2px; margin: 0 2px; border-radius: 1px; background: #dfe5ed; }
+.step.done + .step-line { background: var(--g); }
 
 @media (max-width: 620px) {
   .steps {
     mask-image: linear-gradient(to right, #000 calc(100% - 30px), transparent 100%);
     -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 30px), transparent 100%);
   }
+  .step-line { flex-basis: 24px; }
 }
 
 .workspace { padding: 28px 30px; }
@@ -387,8 +399,6 @@ td.empty { text-align: center; color: var(--mut); padding: 28px; }
 }
 
 @media (max-width: 960px) {
-  .hero { align-items: flex-start; flex-direction: column; }
-  .guardrails { min-width: 0; width: 100%; }
   .upload-grid { grid-template-columns: 1fr; }
   .mapping-grid { grid-template-columns: 1fr 1fr; }
   .section-heading { flex-direction: column; }
@@ -401,9 +411,8 @@ td.empty { text-align: center; color: var(--mut); padding: 28px; }
 @media (max-width: 620px) {
   .topbar { align-items: flex-start; flex-direction: column; }
   .header-actions { width: 100%; flex-wrap: wrap; }
-  .badge.privacy { display: none; }
   .page-shell { width: min(100% - 18px, 1480px); margin-top: 10px; }
-  .hero, .workspace { padding: 20px 17px; }
+  .workspace { padding: 20px 17px; }
   .mapping-grid { grid-template-columns: 1fr; }
   .summary-grid { grid-template-columns: repeat(2, 1fr); }
   .stage-bars { grid-template-columns: 1fr; }
