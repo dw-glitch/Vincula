@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.0.6
+
+Correspondência flexível deixa de ser opcional, e corrigido um formato de data que era
+rejeitado por engano.
+
+### Correspondência flexível agora é sempre tentada
+
+- Antes exigia marcar uma caixa na Etapa 2. Agora acontece sempre, sem pedir nada: quando a
+  igualdade exata falha, o Vincula tenta de novo ignorando zero à esquerda, espaço e traço, e
+  preenche automaticamente quando existe exatamente um documento candidato.
+- A segurança não mudou: se a mesma chave aproximada apontar para dois documentos diferentes
+  na LD, o sistema não escolhe sozinho — fica como não encontrado, com o motivo explicando a
+  ambiguidade, exatamente como antes.
+- A caixa de marcação foi removida da Etapa 2. O painel de diagnóstico (Etapa 3) foi reescrito
+  para refletir que a busca ampliada já é automática.
+
+### Correção: data com vírgula era rejeitada
+
+- Datas no formato `"05/08/2026, 16:58"` (vírgula entre a data e a hora — comum em alguns
+  exports de planilha) eram tratadas como inválidas, e a Data Efetiva de Emissão não era
+  preenchida mesmo com uma data real na relação. O reconhecimento de data e hora só previa
+  espaço ou "T" como separador; agora aceita vírgula também. Validado com o formato exato
+  relatado, de ponta a ponta: preview, gravação e arquivo final (data real do Excel, sem
+  resíduo de hora).
+
+Testes: 167/167 (6 novos).
+
 ## 2.0.5
 
 Remove o painel de apresentação (título, texto explicativo e selos de garantia) da tela

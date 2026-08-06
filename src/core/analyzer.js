@@ -57,10 +57,14 @@
    * @param {object} global    índice global das LDs (documento → ocorrências)
    * @param {object} files     mapa fileId → {id, name, sheetName}
    * @param {{convertTextDates?:boolean, flexibleMatching?:boolean}} options
+   *   flexibleMatching é ligado por padrão: quando a igualdade exata falha,
+   *   tenta de novo por uma chave frouxa (zero à esquerda, espaço, traço) e
+   *   só resolve quando existe exatamente um candidato. Passe `false`
+   *   explicitamente para exigir igualdade exata em toda a análise.
    */
   function analyze(relation, global, files, options = {}) {
     const convertTextDates = options.convertTextDates !== false;
-    const flexibleMatching = options.flexibleMatching === true;
+    const flexibleMatching = options.flexibleMatching !== false;
 
     const records = [];
     const missing = [];

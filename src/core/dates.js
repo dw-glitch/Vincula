@@ -93,7 +93,9 @@
     return INVALID_TOKENS.has(normalized);
   }
 
-  const DMY_RE = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})(?:[\sT]+\d{1,2}[:h]\d{1,2}(?:[:.]\d{1,2})?(?:[.,]\d+)?\s*(?:AM|PM)?)?$/i;
+  // O separador entre data e hora aceita espaço, "T" (ISO) ou vírgula seguida
+  // de espaço — "04/08/2026 08:31:45" e "05/08/2026, 16:58" são o mesmo caso.
+  const DMY_RE = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})(?:[,\sT]+\d{1,2}[:h]\d{1,2}(?:[:.]\d{1,2})?(?:[.,]\d+)?\s*(?:AM|PM)?)?$/i;
   const ISO_RE = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[\sT].*)?$/;
 
   function buildDate(year, month, day) {

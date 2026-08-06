@@ -568,9 +568,9 @@
           </div>
         </div>
         <p class="diagnostics-hint">
-          Dois documentos só casam quando a coluna "Forma comparada" é idêntica nos dois lados. Se eles parecem
-          o mesmo mas essa coluna está diferente — por causa de um prefixo, espaço ou zero a mais — é por isso
-          que não foi encontrado. Confira a coluna de Documento escolhida na Etapa 2.
+          O Vincula já tenta casar documentos mesmo com zero a mais, espaço ou traço diferente. Quando ainda
+          assim não encontra — ou quando mais de um documento da LD poderia ser o mesmo e não dá para saber
+          qual — o documento fica como não encontrado. Confira a coluna de Documento escolhida na Etapa 2.
         </p>
       </div>`;
 
@@ -735,8 +735,11 @@
     setBusy(true);
     resetStages();
     try {
-      const flexibleMatching = $('flexibleMatchingOption').checked;
-      await engine.analyze({ flexibleMatching });
+      // A busca ampliada (zero à esquerda, espaço, traço) é sempre tentada
+      // quando a igualdade exata falha — o usuário não precisa pedir isso.
+      // A segurança continua garantida no analisador: só resolve quando há
+      // exatamente um candidato; caso ambíguo, fica como não encontrado.
+      await engine.analyze({ flexibleMatching: true });
       renderAnalysis();
       goToStep(3);
       const s = engine.state.analysis.stats;

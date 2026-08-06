@@ -200,6 +200,14 @@ async function main() {
   check('"04/08/2026" é data válida', !V.dates.isBlankDateToken('04/08/2026') && !!V.dates.parseDate('04/08/2026'));
   check('31/02/2026 é rejeitada', V.dates.parseDate('31/02/2026') === null);
 
+  // Formato com vírgula entre data e hora, como o Excel exibe em alguns
+  // locais/relatórios ("05/08/2026, 16:58") — precisa parsear igual ao
+  // formato com espaço puro, não ser tratado como data inválida.
+  const commaParsed = V.dates.parseDate('05/08/2026, 16:58');
+  check('"05/08/2026, 16:58" não é tratada como data inválida', commaParsed !== null);
+  equal('"05/08/2026, 16:58" vira 05/08/2026', V.dates.formatDate(commaParsed), '05/08/2026');
+  equal('vírgula: sem resíduo de hora', commaParsed && (commaParsed.getUTCHours() + commaParsed.getUTCMinutes()), 0);
+
   /* ---------------- Abertura e mapeamento ---------------- */
   suite('Abertura, amostragem e sugestão de mapeamento');
 
@@ -597,6 +605,14 @@ async function main() {
   check('ligada: correspondência exata não ganha o marcador de aproximada', !looseExact.flags.includes('CORRESPONDENCIA_APROXIMADA'));
 
   check('filtro por correspondência aproximada retorna só os aproximados', looseRun.records.filter((r) => V.analyzer.matchesFilter(r, 'CORRESPONDENCIA_APROXIMADA')).length === 2);
+
+  // A app não pede mais permissão para isso: sem nenhuma opção informada, o
+  // comportamento já é o mesmo de "ligada" acima. Só quem passar `false`
+  // explicitamente volta à igualdade estrita.
+  const defaultRun = V.analyzer.analyze(looseRelIndex, looseGlobalIndex, looseFiles);
+  equal('padrão (sem opções): mesmo resultado de "ligada"', defaultRun.stats.found, looseRun.stats.found);
+  equal('padrão (sem opções): "0091" já resolve sozinho', defaultRun.records.find((r) => r.document === '0091').status, 'ATUALIZAR');
+  equal('padrão (sem opções): ambíguo continua protegido', defaultRun.missing[0]?.document, 'DOC-0005');
 
   /* ---------------- Liberação ---------------- */
   suite('Gerenciamento de memória');
