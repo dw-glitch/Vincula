@@ -39,13 +39,14 @@
    * @param {object} sheet   metadados da aba mapeada
    * @param {object} model   modelo varrido da aba (contém o XML original)
    * @param {object} mapping colunas confirmadas pelo usuário
-   * @param {Array} plan     itens {recordId, document, row, grdt, dateIso}
+   * @param {Array} plan     itens {recordId, document, row, grdt, dateIso, revision}
    * @param {{verify?:boolean, level?:number}} options
    */
   async function applyPlan(wb, sheet, model, mapping, plan, options = {}) {
     const verify = options.verify !== false;
     const grdtCol = Number(mapping.grdtCol);
     const dateCol = Number(mapping.dateCol);
+    const revisionCol = Number(mapping.revisionCol) || null;
 
     const snapshotXml = model.xml;
     const snapshotHash = await sha256Hex(snapshotXml);
@@ -57,6 +58,7 @@
     const occurrences = [];
     let grdtWrites = 0;
     let dateWrites = 0;
+    let revisionWrites = 0;
 
     if (guards.protected) {
       occurrences.push({
@@ -73,6 +75,9 @@
         const targets = [];
         if (item.grdt !== null && item.grdt !== undefined) targets.push({ field: 'GRDT', col: grdtCol });
         if (item.dateIso) targets.push({ field: 'DATA', col: dateCol });
+        if (item.revision !== null && item.revision !== undefined && revisionCol) {
+          targets.push({ field: 'REVISAO', col: revisionCol });
+        }
         if (!targets.length) {
           results.push({ recordId: item.recordId, outcome: OUTCOME.IGNORADO, reason: 'Nada a gravar.' });
           continue;
@@ -102,7 +107,9 @@
           const ok =
             target.field === 'GRDT'
               ? editor.writeText(item.row, target.col, item.grdt)
-              : editor.writeDate(item.row, target.col, D.parseDate(item.dateIso, false));
+              : target.field === 'REVISAO'
+                ? editor.writeText(item.row, target.col, item.revision)
+                : editor.writeDate(item.row, target.col, D.parseDate(item.dateIso, false));
 
           if (!ok) {
             blockedFields.push(target.field);
@@ -119,6 +126,7 @@
 
           applied.push(target.field);
           if (target.field === 'GRDT') grdtWrites++;
+          else if (target.field === 'REVISAO') revisionWrites++;
           else dateWrites++;
         }
 
@@ -165,7 +173,7 @@
           autoFilter: guards.hasAutoFilter,
         },
         integrity,
-        counters: { grdtWrites, dateWrites, authorizedCells: editor.authorized.size },
+        counters: { grdtWrites, dateWrites, revisionWrites, authorizedCells: editor.authorized.size },
       };
     } catch (error) {
       // Rollback: nada foi escrito no ZIP, basta descartar as emendas.

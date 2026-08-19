@@ -222,11 +222,13 @@
         ...state.lds.filter((ld) => !ld.error).map((ld) => ({ label: ld.name, mapping: ld.mapping })),
       ];
       for (const target of targets) {
-        const { documentCol, grdtCol, dateCol } = target.mapping;
+        const { documentCol, grdtCol, dateCol, revisionCol } = target.mapping;
         if (!documentCol || !grdtCol || !dateCol) {
           throw new Error(`Associe Documento, GRDT e Data em "${target.label}".`);
         }
-        if (new Set([documentCol, grdtCol, dateCol]).size < 3) {
+        const cols = [documentCol, grdtCol, dateCol];
+        if (revisionCol) cols.push(revisionCol);
+        if (new Set(cols).size < cols.length) {
           throw new Error(`Uma mesma coluna foi associada a dois campos em "${target.label}".`);
         }
       }
@@ -396,6 +398,7 @@
           authorizedCells: value.counters.authorizedCells,
           grdtWrites: value.counters.grdtWrites,
           dateWrites: value.counters.dateWrites,
+          revisionWrites: value.counters.revisionWrites,
           integrity: value.integrity.verified ? (value.integrity.ok ? 'APROVADA' : 'REPROVADA') : 'NÃO VERIFICADA',
           comparedCells: value.integrity.comparedCells,
           guards: value.guards,
@@ -414,11 +417,13 @@
           record.status = V.analyzer.STATUS.BLOQUEADO;
           record.grdtWillChange = outcome.appliedFields?.includes('GRDT') || false;
           record.dateWillChange = outcome.appliedFields?.includes('DATA') || false;
+          record.revisionWillChange = outcome.appliedFields?.includes('REVISAO') || false;
           record.reason = `${record.reason} ${outcome.reason || ''}`.trim();
         } else if (outcome.blockedFields && outcome.blockedFields.length) {
           record.reason = `${record.reason} Campo(s) não gravado(s): ${outcome.blockedFields.join(', ')}. ${outcome.reason || ''}`.trim();
           if (outcome.blockedFields.includes('GRDT')) record.grdtWillChange = false;
           if (outcome.blockedFields.includes('DATA')) record.dateWillChange = false;
+          if (outcome.blockedFields.includes('REVISAO')) record.revisionWillChange = false;
         }
       }
 
@@ -445,9 +450,10 @@
         'Documentos duplicados na relação': analysis.stats.relationDuplicates,
         'Documentos duplicados nas LDs': analysis.stats.ldDuplicates,
         'Documentos sem alteração (ignorados)': analysis.stats.unchanged,
-        'Documentos alterados': analysis.records.filter((r) => r.grdtWillChange || r.dateWillChange).length,
+        'Documentos alterados': analysis.records.filter((r) => r.grdtWillChange || r.dateWillChange || r.revisionWillChange).length,
         'Células GRDT gravadas': outputs.reduce((sum, o) => sum + o.grdtWrites, 0),
         'Células de data gravadas': outputs.reduce((sum, o) => sum + o.dateWrites, 0),
+        'Células de revisão gravadas': outputs.reduce((sum, o) => sum + (o.revisionWrites || 0), 0),
         'Datas de postagem inválidas': analysis.stats.invalidDates,
         'Ocorrências registradas': occurrences.length,
         'Erros': failures.length,

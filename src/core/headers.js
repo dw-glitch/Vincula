@@ -95,6 +95,27 @@
       optional: ['GERACAO', 'POSTAGEM'],
       forbidden: ['EFETIVA', 'VENCIMENTO'],
     },
+    revision: {
+      label: 'Revisão',
+      exact: [
+        'REVISAO',
+        'REVISOES',
+        'REVISAO DOCUMENTO',
+        'REVISAO DO DOCUMENTO',
+        'NUMERO DA REVISAO',
+        'NUMERO REVISAO',
+        'N REVISAO',
+        'REVISAO ATUAL',
+        'ULTIMA REVISAO',
+        'REV',
+        'REV ATUAL',
+        'COD REVISAO',
+        'CODIGO REVISAO',
+      ],
+      required: [['REVISAO', 'REV']],
+      optional: ['ATUAL', 'ULTIMA', 'NUMERO', 'CODIGO', 'COD', 'DOCUMENTO'],
+      forbidden: ['DATA', 'GRDT', 'SITUACAO', 'STATUS', 'DESCRICAO', 'MOTIVO'],
+    },
   };
 
   /**
@@ -170,11 +191,16 @@
   }
 
   const PROFILES = {
-    relation: { document: 'document', grdt: 'grdt', date: 'relationDate' },
-    ld: { document: 'document', grdt: 'grdt', date: 'dateEffective' },
+    relation: { document: 'document', grdt: 'grdt', date: 'relationDate', revision: 'revision' },
+    ld: { document: 'document', grdt: 'grdt', date: 'dateEffective', revision: 'revision' },
   };
 
-  const WEIGHTS = { document: 1.4, grdt: 1.0, date: 1.2 };
+  // Revisão é opcional: nem toda LD/Relação tem essa coluna, então ela entra
+  // na varredura (ajuda a achar a linha de cabeçalho certa quando presente)
+  // mas não participa do cálculo de confiança — a ausência dela não pode
+  // rebaixar "alta" para "média" quando os três campos obrigatórios batem.
+  const CORE_SLOTS = ['document', 'grdt', 'date'];
+  const WEIGHTS = { document: 1.4, grdt: 1.0, date: 1.2, revision: 0.6 };
   const MAX_HEADER_SCAN_ROWS = 80;
   const MAX_HEADER_SCAN_COLS = 200;
 
@@ -216,12 +242,13 @@
       if (total > best.score) best = { headerRow: row, score: total, columns, scores };
     }
 
-    const found = Object.keys(best.columns).length;
+    const found = CORE_SLOTS.filter((slot) => best.columns[slot]).length;
     return {
       headerRow: best.headerRow,
       documentCol: best.columns.document || null,
       grdtCol: best.columns.grdt || null,
       dateCol: best.columns.date || null,
+      revisionCol: best.columns.revision || null,
       fieldScores: best.scores,
       score: best.score,
       matchedFields: found,

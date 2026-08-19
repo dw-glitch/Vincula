@@ -70,10 +70,12 @@ Vincula.headers.registerProfile('ld-obras', {
 ```
 
 **Novos tipos documentais e novos campos atualizáveis.**
-A restrição a duas colunas é deliberada e é uma garantia de segurança, não uma limitação técnica.
-Ampliá-la exige tornar o conjunto autorizado uma configuração explícita, mantendo a auditoria de
-integridade sobre o conjunto declarado — a verificação já opera sobre um `Set` de referências
-autorizadas, então o mecanismo não muda.
+A restrição ao conjunto autorizado é deliberada e é uma garantia de segurança, não uma
+limitação técnica — confirmado na prática ao acrescentar a Revisão (2.0.7) como terceiro campo
+sem qualquer mudança na verificação de integridade, que já opera sobre um `Set` de referências
+autorizadas apurado dinamicamente a partir do que cada campo realmente grava. Novos campos além
+de Revisão seguem o mesmo caminho: detecção em `headers.js`, extração em `indexer.js`, regra de
+escrita em `applier.js`.
 
 **Conectores corporativos.**
 `tasks.js` é um contrato de mensagens. Uma origem remota (SharePoint, S3, API do sistema emissor

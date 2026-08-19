@@ -339,6 +339,9 @@
         <div class="field"><label>${esc(dateLabel)}</label>
           ${selectHtml('mc', { k: kind, i: index, f: 'dateCol' }, colOptions, mapping.dateCol, 'Selecione…')}
         </div>
+        <div class="field"><label>Revisão <small>(opcional)</small></label>
+          ${selectHtml('mc', { k: kind, i: index, f: 'revisionCol' }, colOptions, mapping.revisionCol, 'Nenhuma')}
+        </div>
       </div>
       <div class="file-meta">${esc(sheet.name)} · ${formatNumber(sheet.maxRow)} linhas · ${formatNumber(sheet.maxCol)} colunas</div>`;
 
@@ -423,6 +426,7 @@
             documentCol: scan.detected.documentCol,
             grdtCol: scan.detected.grdtCol,
             dateCol: scan.detected.dateCol,
+            revisionCol: scan.detected.revisionCol,
             confidence: scan.detected.confidence,
           });
           renderMappings();
@@ -495,6 +499,9 @@
         )} atualizações previstas.</strong> Tudo certo, pode continuar.`;
 
     renderMatchDiagnostics(analysis, s.relationDocuments > 0 && s.found / s.relationDocuments < 0.05);
+
+    const hasRevision = analysis.records.some((r) => r.beforeRevisao || r.afterRevisao);
+    $('previewTableWrap').classList.toggle('has-revision', hasRevision);
 
     $('generateConfirm').checked = false;
     $('generateBtn').disabled = true;
@@ -640,10 +647,12 @@
         <td class="${r.grdtWillChange ? 'changed' : ''}">${esc(r.afterGrdt)}</td>
         <td>${esc(r.beforeDate)}</td>
         <td class="${r.dateWillChange ? 'changed' : ''}">${esc(r.afterDate)}</td>
+        <td class="col-revision">${esc(r.beforeRevisao)}</td>
+        <td class="col-revision ${r.revisionWillChange ? 'changed' : ''}">${esc(r.afterRevisao)}</td>
         <td class="reason" title="${esc(r.reason)}">${shown ? esc(shown) : '<span class="reason-empty">—</span>'}</td>
       </tr>`;
         })
-        .join('') || '<tr><td colspan="8" class="empty">Nenhum resultado para o filtro atual.</td></tr>';
+        .join('') || '<tr><td colspan="10" class="empty">Nenhum resultado para o filtro atual.</td></tr>';
 
     const pages = Math.max(1, Math.ceil(ui.filtered.length / PAGE_SIZE));
     $('pageInfo').textContent = `Página ${ui.page} de ${pages} · ${formatNumber(ui.filtered.length)} linha(s)`;
@@ -684,7 +693,9 @@
     const items = [
       ...outputs.map((o) => ({
         name: o.name,
-        meta: `${formatBytes(o.size)} · ${o.grdtWrites} GRDT e ${o.dateWrites} data(s) atualizadas`,
+        meta: `${formatBytes(o.size)} · ${o.grdtWrites} GRDT, ${o.dateWrites} data(s)${
+          o.revisionWrites ? ` e ${o.revisionWrites} revisão(ões)` : ''
+        } atualizadas`,
         blob: new Blob([o.bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
       })),
       { name: 'RELATORIO_AUDITORIA_VINCULA.xlsx', meta: 'Planilha com o antes e depois de cada documento', blob: result.auditBlob },
@@ -826,6 +837,7 @@
         documentCol: source.documentCol,
         grdtCol: source.grdtCol,
         dateCol: source.dateCol,
+        revisionCol: source.revisionCol,
       });
       applied++;
     }

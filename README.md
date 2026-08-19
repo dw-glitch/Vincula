@@ -5,8 +5,9 @@
 **Atualizador inteligente de LD por Relação GRCON.**
 
 O Vincula recebe uma Relação GRCON e várias LDs (Excel) simultaneamente e atualiza
-automaticamente **GRDT** e **Data Efetiva de Emissão** nos documentos correspondentes,
-preservando integralmente a estrutura das planilhas e gerando auditoria completa.
+automaticamente **GRDT**, **Data Efetiva de Emissão** e, opcionalmente, **Revisão** nos
+documentos correspondentes, preservando integralmente a estrutura das planilhas e gerando
+auditoria completa.
 
 Aplicação 100% cliente: não há servidor, banco de dados, login, IA externa ou chave de API.
 Nenhum arquivo sai da máquina do usuário.
@@ -53,14 +54,22 @@ a Data Efetiva de Emissão da LD **é preservada**, a pendência é registrada c
 Registrado como `NÃO ENCONTRADO` com o motivo *"Documento pertence a outra LD"*.
 Não gera erro nem interrompe o processamento.
 
+### Revisão (opcional)
+- Lida da mesma coluna de histórico já usada para GRDT e data — não é preciso outra planilha.
+- Segue a mesma regra da GRDT: só é atualizada quando a relação traz um valor; vazia na
+  relação **preserva** a Revisão já existente na LD.
+- Campo opcional: sua ausência na Relação ou na LD não afeta a confiança da detecção nem
+  impede o processamento dos demais campos.
+
 ### Duplicidade
-- Duplicado na **relação**: vence a última ocorrência física, inclusive com data vazia.
+- Duplicado na **relação**: vence a última ocorrência física, inclusive com data (e Revisão) vazia.
 - Duplicado nas **LDs**: todas as ocorrências exatas do documento são atualizadas.
 
 ### Restrição absoluta
-Somente as colunas **GRDT** e **Data Efetiva de Emissão** podem ser modificadas.
-Toda LD gerada é conferida célula a célula contra o original antes de ser empacotada;
-qualquer divergência fora do escopo aborta a gravação daquele arquivo e dispara rollback.
+Somente as colunas **GRDT**, **Data Efetiva de Emissão** e **Revisão** (quando mapeada) podem
+ser modificadas. Toda LD gerada é conferida célula a célula contra o original antes de ser
+empacotada; qualquer divergência fora do escopo aborta a gravação daquele arquivo e dispara
+rollback.
 
 ## Detecção inteligente de cabeçalhos
 
@@ -73,6 +82,7 @@ palavras de ligação são normalizados, e há um segundo estágio por conjunto 
 | GRDT | `GRDT`, `eGRDT`, `E GRDT`, `Número da GRDT` |
 | Data Efetiva de Emissão | `DATA EFETIVA DE EMISSÃO`, `Data Efetiva de Emissão`, `data efetiva de emissão`, `DATA EFETIVA EMISSAO`, `Data Efetiva Emissao` |
 | Data da geração/postagem | `DATA DA GERAÇÃO / POSTAGEM`, `DATA DA POSTAGEM`, `Data da Geração` |
+| Revisão (opcional) | `REVISÃO`, `REV`, `Última Revisão`, `Nº da Revisão`, `Código Revisão` |
 
 A detecção também localiza sozinha a linha do cabeçalho em planilhas com título, logotipo ou
 linhas em branco no topo, e distingue *data de postagem* de *data efetiva* — nunca confunde as duas.
@@ -95,7 +105,7 @@ Não há suporte a `.xls` binário nem a arquivos protegidos por senha (criptogr
 ## Testes
 
 ```bash
-node tests/run.js          # suíte funcional e de integridade (132 verificações)
+node tests/run.js          # suíte funcional e de integridade (186 verificações)
 node tests/bench.js        # teste de volume: 100 LDs × 200 documentos
 node tests/bench.js 5 4000 # variação: poucos arquivos, muitas linhas
 ```

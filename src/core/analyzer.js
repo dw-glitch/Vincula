@@ -113,8 +113,11 @@
           afterGrdt: source.grdt,
           beforeDate: '',
           afterDate: source.dateText,
+          beforeRevisao: '',
+          afterRevisao: source.revision,
           grdtWillChange: false,
           dateWillChange: false,
+          revisionWillChange: false,
           reason: ambiguousLoose
             ? 'Documento pertence a outra LD. Correspondência flexível encontrou mais de um documento diferente com a mesma chave aproximada; não resolvido automaticamente para evitar juntar documentos errados.'
             : 'Documento pertence a outra LD.',
@@ -138,6 +141,10 @@
         if (!source.dateValid) flags.push(FLAG.DATA_INVALIDA);
 
         const grdtWillChange = hasGrdt && squash(entry.beforeGrdt) !== grdtValue;
+
+        const revisionValue = squash(source.revision);
+        const hasRevision = revisionValue !== '';
+        const revisionWillChange = hasRevision && squash(entry.beforeRevisao) !== revisionValue;
 
         let dateWillChange = false;
         if (source.dateValid) {
@@ -173,9 +180,9 @@
           );
           approximateCount++;
         }
-        if (!grdtWillChange && !dateWillChange) reasons.push('Valores já conferem; nenhuma escrita será executada.');
+        if (!grdtWillChange && !dateWillChange && !revisionWillChange) reasons.push('Valores já conferem; nenhuma escrita será executada.');
 
-        const willChange = grdtWillChange || dateWillChange;
+        const willChange = grdtWillChange || dateWillChange || revisionWillChange;
         const record = {
           id: ++sequence,
           document,
@@ -190,8 +197,11 @@
           afterGrdt: grdtWillChange ? source.grdt : entry.beforeGrdt,
           beforeDate: entry.beforeDate,
           afterDate: source.dateValid ? source.dateText : entry.beforeDate,
+          beforeRevisao: entry.beforeRevisao,
+          afterRevisao: revisionWillChange ? source.revision : entry.beforeRevisao,
           grdtWillChange,
           dateWillChange,
+          revisionWillChange,
           reason: reasons.join(' '),
         };
         records.push(record);
@@ -206,6 +216,7 @@
             row: entry.row,
             grdt: grdtWillChange ? source.grdt : null,
             dateIso: dateWillChange ? source.dateIso : null,
+            revision: revisionWillChange ? source.revision : null,
           });
         }
       }
@@ -228,6 +239,7 @@
       invalidDates: invalidDates.length,
       grdtWrites: changing.filter((r) => r.grdtWillChange).length,
       dateWrites: changing.filter((r) => r.dateWillChange).length,
+      revisionWrites: changing.filter((r) => r.revisionWillChange).length,
       approximateMatches: approximateCount,
     };
 

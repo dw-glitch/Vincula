@@ -28,6 +28,7 @@
     const documentCol = Number(mapping.documentCol);
     const grdtCol = Number(mapping.grdtCol);
     const dateCol = Number(mapping.dateCol);
+    const revisionCol = Number(mapping.revisionCol) || null;
     const firstRow = Number(mapping.headerRow) + 1;
 
     const rows = [];
@@ -40,6 +41,7 @@
 
       const grdtCell = X.getCell(model, row, grdtCol);
       const dateCell = X.getCell(model, row, dateCol);
+      const revisionCell = revisionCol ? X.getCell(model, row, revisionCol) : null;
 
       const sourceDateRaw = dateCell
         ? dateCell.isDate
@@ -59,6 +61,7 @@
         rawDocument,
         row,
         grdt: X.cellDisplay(grdtCell),
+        revision: revisionCol ? X.cellDisplay(revisionCell) : '',
         sourceDateRaw,
         dateIso: dateValid ? D.formatIsoDate(parsed) : null,
         dateText: dateValid ? D.formatDate(parsed) : '',
@@ -106,6 +109,7 @@
     const documentCol = Number(mapping.documentCol);
     const grdtCol = Number(mapping.grdtCol);
     const dateCol = Number(mapping.dateCol);
+    const revisionCol = Number(mapping.revisionCol) || null;
     const firstRow = Number(mapping.headerRow) + 1;
 
     const entries = [];
@@ -116,6 +120,7 @@
 
       const grdtCell = X.getCell(model, row, grdtCol);
       const dateCell = X.getCell(model, row, dateCol);
+      const revisionCell = revisionCol ? X.getCell(model, row, revisionCol) : null;
 
       entries.push({
         fileId,
@@ -125,9 +130,11 @@
         beforeGrdt: X.cellDisplay(grdtCell),
         beforeDate: X.cellDisplay(dateCell),
         beforeDateSerial: dateCell && dateCell.isDate ? D.truncateSerial(dateCell.numeric) : null,
+        beforeRevisao: revisionCol ? X.cellDisplay(revisionCell) : '',
         dateCellIsDate: !!(dateCell && dateCell.isDate),
         grdtHasFormula: !!(grdtCell && grdtCell.hasFormula),
         dateHasFormula: !!(dateCell && dateCell.hasFormula),
+        revisionHasFormula: !!(revisionCell && revisionCell.hasFormula),
       });
     }
     return entries;
