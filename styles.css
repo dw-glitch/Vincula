@@ -246,6 +246,9 @@ button, input, select { font: inherit; }
 .topbar .btn.ghost { color: #fff; border-color: #ffffff59; }
 .topbar .btn.ghost:hover { background: #ffffff1a; }
 .btn.small { padding: 7px 11px; font-size: 12px; }
+/* Atalho para o GRCON no cabeçalho: âncora com aparência de botão. */
+.app-shortcut-link { display: inline-flex; align-items: center; gap: 7px; text-decoration: none; white-space: nowrap; }
+.app-shortcut-link svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ------------------------------------------------------------ Mapeamento */
 
