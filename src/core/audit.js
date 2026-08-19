@@ -127,8 +127,11 @@
       grdtNova: record.afterGrdt || '',
       dataAnterior: record.beforeDate || '',
       dataNova: record.afterDate || '',
+      revisaoAnterior: record.beforeRevisao || '',
+      revisaoNova: record.afterRevisao || '',
       grdtAlterada: record.grdtWillChange ? 'SIM' : 'NÃO',
       dataAlterada: record.dateWillChange ? 'SIM' : 'NÃO',
+      revisaoAlterada: record.revisionWillChange ? 'SIM' : 'NÃO',
       status: A.STATUS_LABEL[record.status] || record.status,
       statusCodigo: record.status,
       marcadores: flagLabels(record.flags),
@@ -145,21 +148,21 @@
     const detailRows = [
       [
         'Documento', 'Arquivo', 'Aba', 'Linha', 'Linha na Relação',
-        'GRDT anterior', 'GRDT nova', 'Data anterior', 'Data nova',
-        'GRDT alterada', 'Data alterada', 'Status', 'Marcadores', 'Timestamp', 'Motivo',
+        'GRDT anterior', 'GRDT nova', 'Data anterior', 'Data nova', 'Revisão anterior', 'Revisão nova',
+        'GRDT alterada', 'Data alterada', 'Revisão alterada', 'Status', 'Marcadores', 'Timestamp', 'Motivo',
       ],
       ...report.detail.map((d) => [
         d.documento, d.arquivo, d.aba, d.linha, d.linhaRelacao,
-        d.grdtAnterior, d.grdtNova, d.dataAnterior, d.dataNova,
-        d.grdtAlterada, d.dataAlterada, d.status, d.marcadores, d.timestamp, d.motivo,
+        d.grdtAnterior, d.grdtNova, d.dataAnterior, d.dataNova, d.revisaoAnterior, d.revisaoNova,
+        d.grdtAlterada, d.dataAlterada, d.revisaoAlterada, d.status, d.marcadores, d.timestamp, d.motivo,
       ]),
     ];
 
     const changedRows = [
-      ['Documento', 'Arquivo', 'Aba', 'Linha', 'GRDT anterior', 'GRDT nova', 'Data anterior', 'Data nova', 'Timestamp'],
+      ['Documento', 'Arquivo', 'Aba', 'Linha', 'GRDT anterior', 'GRDT nova', 'Data anterior', 'Data nova', 'Revisão anterior', 'Revisão nova', 'Timestamp'],
       ...report.detail
-        .filter((d) => d.grdtAlterada === 'SIM' || d.dataAlterada === 'SIM')
-        .map((d) => [d.documento, d.arquivo, d.aba, d.linha, d.grdtAnterior, d.grdtNova, d.dataAnterior, d.dataNova, d.timestamp]),
+        .filter((d) => d.grdtAlterada === 'SIM' || d.dataAlterada === 'SIM' || d.revisaoAlterada === 'SIM')
+        .map((d) => [d.documento, d.arquivo, d.aba, d.linha, d.grdtAnterior, d.grdtNova, d.dataAnterior, d.dataNova, d.revisaoAnterior, d.revisaoNova, d.timestamp]),
     ];
 
     const duplicateRows = [
@@ -196,7 +199,7 @@
     ];
 
     const outputRows = [
-      ['Arquivo gerado', 'Origem', 'Tamanho (bytes)', 'Células autorizadas', 'GRDT gravadas', 'Datas gravadas', 'Integridade', 'SHA-256'],
+      ['Arquivo gerado', 'Origem', 'Tamanho (bytes)', 'Células autorizadas', 'GRDT gravadas', 'Datas gravadas', 'Revisões gravadas', 'Integridade', 'SHA-256'],
       ...report.outputs.map((o) => [
         o.name,
         o.source,
@@ -204,6 +207,7 @@
         o.authorizedCells,
         o.grdtWrites,
         o.dateWrites,
+        o.revisionWrites || 0,
         o.integrity,
         o.hash,
       ]),
@@ -211,13 +215,13 @@
 
     return buildWorkbook([
       { name: 'Resumo', rows: summaryRows, widths: [38, 60] },
-      { name: 'Detalhamento', rows: detailRows, widths: [26, 26, 16, 8, 12, 18, 18, 14, 14, 12, 12, 16, 26, 22, 70] },
-      { name: 'Alterações', rows: changedRows, widths: [26, 26, 16, 8, 18, 18, 14, 14, 22] },
+      { name: 'Detalhamento', rows: detailRows, widths: [26, 26, 16, 8, 12, 18, 18, 14, 14, 14, 14, 12, 12, 14, 16, 26, 22, 70] },
+      { name: 'Alterações', rows: changedRows, widths: [26, 26, 16, 8, 18, 18, 14, 14, 14, 14, 22] },
       { name: 'Duplicados', rows: duplicateRows, widths: [26, 12, 16, 18, 80] },
       { name: 'Não Encontrados', rows: missingRows, widths: [26, 14, 18, 14, 18, 60] },
       { name: 'Datas Inválidas', rows: invalidRows, widths: [26, 26, 14, 24, 20, 60] },
       { name: 'Ocorrências', rows: occurrenceRows, widths: [26, 16, 10, 26, 16, 80] },
-      { name: 'Arquivos Gerados', rows: outputRows, widths: [40, 28, 16, 18, 14, 14, 14, 68] },
+      { name: 'Arquivos Gerados', rows: outputRows, widths: [40, 28, 16, 18, 14, 14, 14, 14, 68] },
     ]);
   }
 

@@ -55,7 +55,7 @@
   }
 
   function mappingKey(mapping) {
-    return [mapping.sheetPath, mapping.headerRow, mapping.documentCol, mapping.grdtCol, mapping.dateCol].join('|');
+    return [mapping.sheetPath, mapping.headerRow, mapping.documentCol, mapping.grdtCol, mapping.dateCol, mapping.revisionCol].join('|');
   }
 
   function entryOf(fileId) {
@@ -157,6 +157,7 @@
         documentCol: suggestion ? suggestion.documentCol : null,
         grdtCol: suggestion ? suggestion.grdtCol : null,
         dateCol: suggestion ? suggestion.dateCol : null,
+        revisionCol: suggestion ? suggestion.revisionCol : null,
         confidence: suggestion ? suggestion.confidence : 'baixa',
         fieldScores: suggestion ? suggestion.fieldScores : {},
       },
@@ -225,7 +226,7 @@
     if (!sheet) throw new Error(`Aba "${mapping.sheetName || mapping.sheetPath}" não encontrada em ${entry.name}.`);
     const xml = await X.readSheetXml(entry.wb, sheet);
     const model = X.scanSheet(entry.wb, xml, {
-      columns: [Number(mapping.documentCol), Number(mapping.grdtCol), Number(mapping.dateCol)],
+      columns: [Number(mapping.documentCol), Number(mapping.grdtCol), Number(mapping.dateCol), Number(mapping.revisionCol)],
     });
     try {
       return await fn(sheet, model);

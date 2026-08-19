@@ -135,5 +135,5 @@ Antes de liberar uma versão, com arquivos reais:
 7. Abrir uma LD gerada no Excel e verificar:
    - a Data Efetiva de Emissão aceita `=A1+1` e filtros de data (é data real, não texto);
    - fórmulas, filtros, validações e formatação condicional continuam funcionando;
-   - nenhuma coluna além de GRDT e Data mudou.
+   - nenhuma coluna além de GRDT, Data e (quando mapeada) Revisão mudou.
 8. Conferir o SHA-256 do pacote com `certutil -hashfile ... SHA256`.

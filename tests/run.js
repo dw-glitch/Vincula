@@ -614,6 +614,90 @@ async function main() {
   equal('padrão (sem opções): "0091" já resolve sozinho', defaultRun.records.find((r) => r.document === '0091').status, 'ATUALIZAR');
   equal('padrão (sem opções): ambíguo continua protegido', defaultRun.missing[0]?.document, 'DOC-0005');
 
+  /* ---------------- Revisão ---------------- */
+  suite('Revisão — coluna opcional lida do histórico na aba de documentos');
+
+  const revisionRelationRows = [
+    [
+      { text: 'Documento', style: STYLE.HEADER },
+      { text: 'GRDT', style: STYLE.HEADER },
+      { text: 'Data Efetiva de Emissão', style: STYLE.HEADER },
+      { text: 'Revisão', style: STYLE.HEADER },
+    ],
+    [{ text: 'DOC-R01' }, { text: 'GR-100' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'Rev A' }],
+    [{ text: 'DOC-R02' }, { text: 'GR-200' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { inline: '' }],
+    // Duplicata de DOC-R01: vence a última ocorrência, GRDT e Revisão inclusive.
+    [{ text: 'DOC-R01' }, { text: 'GR-101' }, { dateSerial: SERIAL_2026_02_02, style: STYLE.DATE }, { text: 'Rev B' }],
+    [{ text: 'DOC-R03' }, { text: 'GR-300' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'Rev C' }],
+  ];
+
+  const revisionLdRows = [
+    [
+      { text: 'Documento', style: STYLE.HEADER },
+      { text: 'eGRDT', style: STYLE.HEADER },
+      { text: 'Data Efetiva de Emissão', style: STYLE.HEADER },
+      { text: 'Revisão', style: STYLE.HEADER },
+    ],
+    [{ text: 'DOC-R01' }, { text: 'GR-000' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'Rev-OLD' }],
+    [{ text: 'DOC-R02' }, { text: 'GR-000' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'Rev-KEEP' }],
+    [{ text: 'DOC-R03' }, { text: 'GR-000' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'Rev-OLD3' }],
+  ];
+
+  const revisionRelationBytes = await buildWorkbook(JSZip, [{ name: 'Relação', rows: revisionRelationRows, options: {} }]);
+  const revisionLdBytes = await buildWorkbook(JSZip, [{ name: 'Dados', rows: revisionLdRows, options: {} }]);
+
+  const revRelMeta = await V.tasks.open({ fileId: 'rev-rel', name: 'REL_REV.xlsx', bytes: revisionRelationBytes, hash: 'rev-rel', profile: 'relation' });
+  equal('coluna Revisão detectada na relação', revRelMeta.mapping.revisionCol, 4);
+  equal('confiança alta não é penalizada pela Revisão', revRelMeta.mapping.confidence, 'alta');
+
+  const revLdMeta = await V.tasks.open({ fileId: 'rev-ld', name: 'LD_REV.xlsx', bytes: revisionLdBytes, hash: 'rev-ld', profile: 'ld' });
+  equal('coluna Revisão detectada na LD', revLdMeta.mapping.revisionCol, 4);
+
+  const revRelIndex = await V.tasks.indexRelation({ fileId: 'rev-rel', mapping: revRelMeta.mapping });
+  equal('Revisão vencedora de DOC-R01 é a da última ocorrência', revRelIndex.selected.get('DOC-R01').revision, 'Rev B');
+  equal('Revisão de DOC-R02 chega vazia (linha sem valor)', revRelIndex.selected.get('DOC-R02').revision, '');
+
+  const revLdIndex = await V.tasks.indexLd({ fileId: 'rev-ld', mapping: revLdMeta.mapping });
+  const revGlobalIndex = V.indexer.buildGlobalIndex([revLdIndex]);
+  const revFiles = new Map([['rev-ld', { id: 'rev-ld', name: 'LD_REV.xlsx', sheetName: 'Dados' }]]);
+  const revAnalysis = V.analyzer.analyze(revRelIndex, revGlobalIndex, revFiles);
+
+  const revByDoc = (doc) => revAnalysis.records.find((r) => r.document === doc);
+  const revDoc01 = revByDoc('DOC-R01');
+  check('DOC-R01 altera a Revisão para a da última ocorrência', revDoc01.revisionWillChange === true);
+  equal('DOC-R01 mostra Rev-OLD → Rev B na prévia', `${revDoc01.beforeRevisao} -> ${revDoc01.afterRevisao}`, 'Rev-OLD -> Rev B');
+
+  const revDoc02 = revByDoc('DOC-R02');
+  check('DOC-R02 preserva a Revisão existente quando a relação vem vazia', revDoc02.revisionWillChange === false);
+  equal('DOC-R02 mantém Rev-KEEP na prévia', revDoc02.afterRevisao, 'Rev-KEEP');
+
+  const revDoc03 = revByDoc('DOC-R03');
+  check('DOC-R03 altera a Revisão', revDoc03.revisionWillChange === true);
+  equal('DOC-R03 recebe Rev C', revDoc03.afterRevisao, 'Rev C');
+
+  const revApplied = await V.tasks.apply({
+    fileId: 'rev-ld',
+    mapping: revLdMeta.mapping,
+    plan: revAnalysis.plans.get('rev-ld'),
+    options: { verify: true },
+  });
+  check('gravação da Revisão concluída', revApplied.ok === true, revApplied.error);
+  check('integridade aprovada com 3 colunas autorizadas', revApplied.integrity && revApplied.integrity.ok === true, JSON.stringify(revApplied.integrity?.violations));
+  equal('contador de revisões gravadas', revApplied.counters.revisionWrites, 2);
+
+  const revOut = await openModel(revApplied.bytes, 'rev-saida', [1, 2, 3, 4]);
+  equal('Revisão de DOC-R01 gravada no arquivo', V.xlsx.cellDisplay(V.xlsx.getCell(revOut.model, 2, 4)), 'Rev B');
+  equal('Revisão de DOC-R02 permanece intocada no arquivo', V.xlsx.cellDisplay(V.xlsx.getCell(revOut.model, 3, 4)), 'Rev-KEEP');
+  equal('Revisão de DOC-R03 gravada no arquivo', V.xlsx.cellDisplay(V.xlsx.getCell(revOut.model, 4, 4)), 'Rev C');
+  equal('GRDT de DOC-R01 gravada junto', V.xlsx.cellDisplay(V.xlsx.getCell(revOut.model, 2, 2)), 'GR-101');
+
+  // Mapeamento sem Revisão associada (revisionCol nulo) continua funcionando
+  // normalmente — o campo é opcional e não pode quebrar o fluxo existente.
+  const revLdMappingNoRevision = { ...revLdMeta.mapping, revisionCol: null };
+  const revLdIndexNoRevision = await V.tasks.indexLd({ fileId: 'rev-ld', mapping: revLdMappingNoRevision });
+  const noRevEntry = revLdIndexNoRevision.entries.find((e) => e.document === 'DOC-R01');
+  equal('sem revisionCol mapeado, beforeRevisao fica vazio', noRevEntry.beforeRevisao, '');
+
   /* ---------------- Liberação ---------------- */
   suite('Gerenciamento de memória');
   const statsBefore = V.tasks.stats();

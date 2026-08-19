@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.0.7
+
+Vincula agora também atualiza a Revisão do documento, lendo a mesma coluna de histórico já
+usada para GRDT e data — sem precisar de outra planilha.
+
+### Nova coluna opcional: Revisão
+
+- Reconhecimento automático de uma coluna de "Revisão" tanto na Relação GRCON quanto na LD
+  (mesma aba de documentos já lida hoje), com as mesmas grafias flexíveis usadas nos outros
+  campos ("REVISÃO", "REV", "Última Revisão", "Nº da Revisão" etc.).
+- Segue exatamente a mesma regra da GRDT: quando o mesmo documento aparece mais de uma vez na
+  relação, vence a última ocorrência física — inclusive quando a Revisão dessa última linha
+  vier vazia. Quando a relação não traz Revisão para um documento, a Revisão que já está na LD
+  é preservada; só é gravada quando o valor realmente muda.
+- Campo opcional: como nem toda LD ou Relação tem essa coluna, a ausência dela não derruba a
+  confiança da detecção automática (documento, GRDT e data continuam sendo os três campos
+  obrigatórios) nem impede o processamento.
+- Etapa 2 ganhou um seletor "Revisão (opcional)" ao lado dos já existentes. Etapa 3 só mostra
+  as colunas "Revisão atual" / "Nova revisão" na prévia quando a planilha carregada realmente
+  tem essa informação — sem poluir a tela de quem não usa o campo. Relatório de auditoria e
+  log JSON também trazem o antes/depois da Revisão.
+
+Testes: 186/186 (19 novos, cobrindo detecção, duplicidade, preservação de valor vazio,
+gravação e integridade com a terceira coluna autorizada). Validado também de ponta a ponta
+pelo navegador (upload → mapeamento → prévia → geração → arquivo final).
+
 ## 2.0.6
 
 Correspondência flexível deixa de ser opcional, e corrigido um formato de data que era
