@@ -199,10 +199,11 @@
     ];
 
     const outputRows = [
-      ['Arquivo gerado', 'Origem', 'Tamanho (bytes)', 'Células autorizadas', 'GRDT gravadas', 'Datas gravadas', 'Revisões gravadas', 'Integridade', 'SHA-256'],
+      ['Arquivo gerado', 'Origem', 'Abas atualizadas', 'Tamanho (bytes)', 'Células autorizadas', 'GRDT gravadas', 'Datas gravadas', 'Revisões gravadas', 'Integridade', 'SHA-256'],
       ...report.outputs.map((o) => [
         o.name,
         o.source,
+        o.sheets || '',
         o.size,
         o.authorizedCells,
         o.grdtWrites,
@@ -221,7 +222,7 @@
       { name: 'Não Encontrados', rows: missingRows, widths: [26, 14, 18, 14, 18, 60] },
       { name: 'Datas Inválidas', rows: invalidRows, widths: [26, 26, 14, 24, 20, 60] },
       { name: 'Ocorrências', rows: occurrenceRows, widths: [26, 16, 10, 26, 16, 80] },
-      { name: 'Arquivos Gerados', rows: outputRows, widths: [40, 28, 16, 18, 14, 14, 14, 14, 68] },
+      { name: 'Arquivos Gerados', rows: outputRows, widths: [40, 28, 26, 16, 18, 14, 14, 14, 14, 68] },
     ]);
   }
 

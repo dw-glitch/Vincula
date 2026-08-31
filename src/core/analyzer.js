@@ -54,7 +54,9 @@
 
   /**
    * @param {object} relation  índice da Relação GRCON
-   * @param {object} global    índice global das LDs (documento → ocorrências)
+   * @param {object} global    índice global das LDs (documento → ocorrências).
+   *   Uma LD pode contribuir com mais de uma aba (documentos e CV/currículos);
+   *   cada ocorrência carrega a aba de onde veio e é atualizada no lugar certo.
    * @param {object} files     mapa fileId → {id, name, sheetName}
    * @param {{convertTextDates?:boolean, flexibleMatching?:boolean}} options
    *   flexibleMatching é ligado por padrão: quando a igualdade exata falha,
@@ -130,24 +132,32 @@
       // Documento repetido na LD: todas as ocorrências exatas são atualizadas.
       for (const entry of matches) {
         const file = files.get(entry.fileId) || { name: '', sheetName: '' };
+        // A aba vem da própria ocorrência: o mesmo arquivo pode ter sido
+        // indexado em mais de uma aba.
+        const sheetName = entry.sheetName || file.sheetName || '';
         const flags = [];
         if (duplicatedInRelation) flags.push(FLAG.DUPLICADO_RELACAO);
         if (matches.length > 1) flags.push(FLAG.DUPLICADO_LD);
         if (approximateSource) flags.push(FLAG.CORRESPONDENCIA_APROXIMADA);
+
+        // Campo que não existe nesta aba não é prometido nem gravado.
+        const sheetHasGrdt = entry.hasGrdtCol !== false;
+        const sheetHasDate = entry.hasDateCol !== false;
+        const sheetHasRevision = entry.hasRevisionCol !== false;
 
         const grdtValue = squash(source.grdt);
         const hasGrdt = grdtValue !== '' && !D.isBlankDateToken(grdtValue);
         if (!hasGrdt) flags.push(FLAG.GRDT_AUSENTE);
         if (!source.dateValid) flags.push(FLAG.DATA_INVALIDA);
 
-        const grdtWillChange = hasGrdt && squash(entry.beforeGrdt) !== grdtValue;
+        const grdtWillChange = hasGrdt && sheetHasGrdt && squash(entry.beforeGrdt) !== grdtValue;
 
         const revisionValue = squash(source.revision);
         const hasRevision = revisionValue !== '';
-        const revisionWillChange = hasRevision && squash(entry.beforeRevisao) !== revisionValue;
+        const revisionWillChange = hasRevision && sheetHasRevision && squash(entry.beforeRevisao) !== revisionValue;
 
         let dateWillChange = false;
-        if (source.dateValid) {
+        if (source.dateValid && sheetHasDate) {
           const current = existingDateIso(entry);
           // Mesmo dia, porém guardado como texto: reescreve como data real do
           // Excel — o tipo faz parte do resultado exigido, não só o valor.
@@ -163,9 +173,11 @@
         );
         reasons.push(
           matches.length > 1
-            ? `LD: ${matches.length} ocorrências do documento; todas atualizadas.`
-            : `LD: ${file.name} · ${file.sheetName} · linha ${entry.row}.`
+            ? `LD: ${matches.length} ocorrências do documento; todas atualizadas. Esta: ${file.name} · ${sheetName} · linha ${entry.row}.`
+            : `LD: ${file.name} · ${sheetName} · linha ${entry.row}.`
         );
+        if (!sheetHasGrdt) reasons.push(`A aba "${sheetName}" não tem coluna de GRDT mapeada; o campo não é gravado nela.`);
+        if (!sheetHasDate) reasons.push(`A aba "${sheetName}" não tem coluna de data mapeada; o campo não é gravado nela.`);
         if (!source.dateValid) {
           reasons.push(
             `Data da postagem inválida ("${source.sourceDateRaw || 'vazio'}"); a Data Efetiva de Emissão da LD é preservada.`
@@ -191,7 +203,8 @@
           relationRow: source.row,
           fileId: entry.fileId,
           fileName: file.name,
-          sheetName: file.sheetName,
+          sheetName,
+          sheetPath: entry.sheetPath || '',
           row: entry.row,
           beforeGrdt: entry.beforeGrdt,
           afterGrdt: grdtWillChange ? source.grdt : entry.beforeGrdt,
@@ -213,6 +226,10 @@
           plan.push({
             recordId: record.id,
             document,
+            // A aba vai junto: um mesmo arquivo pode receber escrita em mais
+            // de uma aba, e a linha só faz sentido dentro da sua.
+            sheetPath: entry.sheetPath || '',
+            sheetName,
             row: entry.row,
             grdt: grdtWillChange ? source.grdt : null,
             dateIso: dateWillChange ? source.dateIso : null,
@@ -223,6 +240,7 @@
     }
 
     const changing = records.filter((r) => r.status === STATUS.ATUALIZAR);
+    const sheetsTouched = new Set(changing.map((r) => `${r.fileId}|${r.sheetPath}`));
     const stats = {
       relationRows: relation.totalRows,
       relationDocuments: relation.uniqueDocuments,
@@ -241,6 +259,7 @@
       dateWrites: changing.filter((r) => r.dateWillChange).length,
       revisionWrites: changing.filter((r) => r.revisionWillChange).length,
       approximateMatches: approximateCount,
+      sheetsWithChanges: sheetsTouched.size,
     };
 
     return { records, missing, invalidDates, plans, stats };

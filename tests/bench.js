@@ -18,12 +18,18 @@ const { V, JSZip } = loadVincula();
 
 const LD_COUNT = Number(process.argv[2] || 100);
 const DOCS_PER_LD = Number(process.argv[3] || 200);
-const TOTAL_DOCS = LD_COUNT * DOCS_PER_LD;
+// Cada LD também traz uma aba de CV (currículos), atualizada na mesma passada.
+const CVS_PER_LD = Math.max(5, Math.round(DOCS_PER_LD / 20));
+const TOTAL_DOCS = LD_COUNT * (DOCS_PER_LD + CVS_PER_LD);
 
 const BASE_SERIAL = serial(2026, 1, 1);
 
 function documentCode(ldIndex, row) {
   return `LD${String(ldIndex).padStart(3, '0')}-DOC-${String(row).padStart(5, '0')}`;
+}
+
+function cvCode(ldIndex, row) {
+  return `LD${String(ldIndex).padStart(3, '0')}-CV-${String(row).padStart(5, '0')}`;
 }
 
 function relationRows() {
@@ -41,6 +47,13 @@ function relationRows() {
         { text: documentCode(ld, doc) },
         { text: `GR${900000 + ld * 1000 + doc}` },
         invalid ? { text: '-' } : { text: `0${(doc % 9) + 1}/08/2026 08:31:45` },
+      ]);
+    }
+    for (let cv = 1; cv <= CVS_PER_LD; cv++) {
+      rows.push([
+        { text: cvCode(ld, cv) },
+        { text: `GRCV${800000 + ld * 1000 + cv}` },
+        { text: `1${(cv % 9) + 0}/08/2026 14:05:00` },
       ]);
     }
   }
@@ -69,6 +82,21 @@ function ldRows(ldIndex) {
   return rows;
 }
 
+/** Aba de CV (currículos) da LD: mesma regra, coluna de documento própria. */
+function cvRows(ldIndex) {
+  const rows = [
+    [
+      { text: 'CV', style: STYLE.HEADER },
+      { text: 'GRDT', style: STYLE.HEADER },
+      { text: 'Data Efetiva de Emissão', style: STYLE.HEADER },
+    ],
+  ];
+  for (let cv = 1; cv <= CVS_PER_LD; cv++) {
+    rows.push([{ text: cvCode(ldIndex, cv) }, { text: `ANTIGO-CV-${cv}` }, { dateSerial: BASE_SERIAL, style: STYLE.DATE }]);
+  }
+  return rows;
+}
+
 function mark(label, start) {
   const ms = Number(process.hrtime.bigint() - start) / 1e6;
   console.log(`  ${label.padEnd(34)} ${ms.toFixed(0).padStart(7)} ms`);
@@ -77,7 +105,9 @@ function mark(label, start) {
 
 async function main() {
   console.log(`\nVincula ${V.VERSION} — teste de volume`);
-  console.log(`${LD_COUNT} LDs × ${DOCS_PER_LD} documentos = ${TOTAL_DOCS.toLocaleString('pt-BR')} documentos\n`);
+  console.log(
+    `${LD_COUNT} LDs × (${DOCS_PER_LD} documentos + ${CVS_PER_LD} CVs em aba própria) = ${TOTAL_DOCS.toLocaleString('pt-BR')} documentos\n`
+  );
 
   let start = process.hrtime.bigint();
   const relationBytes = await buildWorkbook(JSZip, [{ name: 'Relação', rows: relationRows(), options: {} }]);
@@ -85,7 +115,10 @@ async function main() {
   for (let ld = 0; ld < LD_COUNT; ld++) {
     ldFiles.push({
       name: `LD-${String(ld).padStart(3, '0')}.xlsx`,
-      bytes: await buildWorkbook(JSZip, [{ name: 'Dados', rows: ldRows(ld), options: {} }]),
+      bytes: await buildWorkbook(JSZip, [
+        { name: 'Dados', rows: ldRows(ld), options: {} },
+        { name: 'CV', rows: cvRows(ld), options: {} },
+      ]),
     });
   }
   mark('Geração das fixtures', start);
@@ -108,21 +141,26 @@ async function main() {
   const relationIndex = await V.tasks.indexRelation({ fileId: 'rel', mapping: relationMeta.mapping });
   const ldIndexes = [];
   for (let i = 0; i < ldFiles.length; i++) {
-    ldIndexes.push(await V.tasks.indexLd({ fileId: `ld${i}`, mapping: ldMetas[i].mapping }));
+    // Uma indexação por aba mapeada: documentos e CV.
+    for (const mapping of ldMetas[i].mappings) {
+      ldIndexes.push(await V.tasks.indexLd({ fileId: `ld${i}`, mapping }));
+    }
   }
-  totals.indexacao = mark('Indexação (relação + LDs)', start);
+  totals.indexacao = mark('Indexação (relação + abas das LDs)', start);
 
   /* ---------------- Cache ---------------- */
   start = process.hrtime.bigint();
   await V.tasks.indexRelation({ fileId: 'rel', mapping: relationMeta.mapping });
   for (let i = 0; i < ldFiles.length; i++) {
-    await V.tasks.indexLd({ fileId: `ld${i}`, mapping: ldMetas[i].mapping });
+    for (const mapping of ldMetas[i].mappings) {
+      await V.tasks.indexLd({ fileId: `ld${i}`, mapping });
+    }
   }
   totals.cache = mark('Reindexação com cache quente', start);
 
   /* ---------------- Análise ---------------- */
   start = process.hrtime.bigint();
-  const files = new Map(ldIndexes.map((x, i) => [`ld${i}`, { id: `ld${i}`, name: x.name, sheetName: x.sheetName }]));
+  const files = new Map(ldFiles.map((file, i) => [`ld${i}`, { id: `ld${i}`, name: file.name, sheetName: 'Dados' }]));
   const globalIndex = V.indexer.buildGlobalIndex(ldIndexes);
   const analysis = V.analyzer.analyze(relationIndex, globalIndex, files);
   totals.analise = mark('Análise (cruzamento O(1))', start);
@@ -143,7 +181,13 @@ async function main() {
   let integrityOk = 0;
   for (let i = 0; i < ldFiles.length; i++) {
     const plan = analysis.plans.get(`ld${i}`) || [];
-    const result = await V.tasks.apply({ fileId: `ld${i}`, mapping: ldMetas[i].mapping, plan, options: { verify: true } });
+    const result = await V.tasks.apply({
+      fileId: `ld${i}`,
+      mapping: ldMetas[i].mapping,
+      mappings: ldMetas[i].mappings,
+      plan,
+      options: { verify: true },
+    });
     if (result.ok) {
       written += result.counters.authorizedCells;
       if (result.integrity.ok) integrityOk++;
@@ -177,6 +221,7 @@ async function main() {
   console.log(`  Documentos na relação      ${relationIndex.uniqueDocuments.toLocaleString('pt-BR')}`);
   console.log(`  Correspondências           ${analysis.stats.records.toLocaleString('pt-BR')}`);
   console.log(`  Alterações previstas       ${analysis.stats.willChange.toLocaleString('pt-BR')}`);
+  console.log(`  Abas com alteração         ${analysis.stats.sheetsWithChanges.toLocaleString('pt-BR')}`);
   console.log(`  Células gravadas           ${written.toLocaleString('pt-BR')}`);
   console.log(`  Integridade aprovada       ${integrityOk}/${LD_COUNT} arquivos`);
   console.log(`  Ganho do cache             ${(totals.indexacao / Math.max(1, totals.cache)).toFixed(0)}×`);

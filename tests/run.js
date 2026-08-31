@@ -140,6 +140,16 @@ async function openModel(bytes, name, columns) {
   return { wb, sheet, xml, model };
 }
 
+/** Mesmo que openModel, porém em uma aba nomeada (LD com mais de uma aba). */
+async function openSheetModel(bytes, name, sheetName, columns) {
+  const wb = await V.xlsx.open(bytes, name);
+  const sheet = V.xlsx.findSheet(wb, sheetName);
+  if (!sheet) throw new Error(`Aba "${sheetName}" não encontrada em ${name}.`);
+  const xml = await V.xlsx.readSheetXml(wb, sheet);
+  const model = V.xlsx.scanSheet(wb, xml, { columns });
+  return { wb, sheet, xml, model };
+}
+
 /* ------------------------------------------------------------------ *
  * Execução
  * ------------------------------------------------------------------ */
@@ -697,6 +707,193 @@ async function main() {
   const revLdIndexNoRevision = await V.tasks.indexLd({ fileId: 'rev-ld', mapping: revLdMappingNoRevision });
   const noRevEntry = revLdIndexNoRevision.entries.find((e) => e.document === 'DOC-R01');
   equal('sem revisionCol mapeado, beforeRevisao fica vazio', noRevEntry.beforeRevisao, '');
+
+  /* ---------------- Aba de CV (currículos) ---------------- */
+  suite('Aba de CV (currículos) — LD com mais de uma aba atualizável');
+
+  for (const [sheetName, role] of [
+    ['CV', 'cv'],
+    ['CVs', 'cv'],
+    ['CV - Currículos', 'cv'],
+    ['Currículos', 'cv'],
+    ['CURRICULO', 'cv'],
+    ['Curriculum Vitae', 'cv'],
+    ['Documentos', 'documentos'],
+    ['LD', 'documentos'],
+    ['Resumo', null],
+  ]) {
+    equal(`aba "${sheetName}" classificada como ${role}`, V.headers.classifySheet(sheetName), role);
+  }
+
+  // "CV" sozinho não é coluna de documento na aba de documentos (evita
+  // confundir uma coluna auxiliar com o código), mas é na aba de currículos.
+  equal('"CV" não é documento no perfil comum', V.headers.scoreHeader('document', 'CV'), 0);
+  equal('"CV" é documento no perfil da aba de CV', V.headers.scoreHeader('documentCv', 'CV'), 100);
+  equal('"Código do CV" reconhecido na aba de CV', V.headers.scoreHeader('documentCv', 'Código do CV'), 100);
+  equal('perfil da aba de CV é escolhido pelo papel', V.headers.profileForSheet('ld', 'cv'), 'ldCv');
+  equal('aba comum continua no perfil da LD', V.headers.profileForSheet('ld', 'documentos'), 'ld');
+
+  const cvRelationBytes = await buildWorkbook(JSZip, [
+    {
+      name: 'Relação',
+      rows: [
+        [
+          { text: 'DOCUMENTO', style: STYLE.HEADER },
+          { text: 'GRDT', style: STYLE.HEADER },
+          { text: 'DATA DA GERAÇÃO / POSTAGEM', style: STYLE.HEADER },
+          { text: 'REVISÃO', style: STYLE.HEADER },
+        ],
+        [{ text: 'LD-001-DOC-01' }, { text: '700100' }, { text: '04/08/2026 09:00:00' }, { text: 'B' }],
+        [{ text: 'CV-001' }, { text: '700200' }, { text: '05/08/2026 10:30:00' }, { text: '1' }],
+        // Data inválida na relação: no CV, a data existente é preservada.
+        [{ text: 'CV-002' }, { text: '700300' }, { text: '-' }, { text: '2' }],
+      ],
+      options: {},
+    },
+  ]);
+
+  const cvLdBytes = await buildWorkbook(JSZip, [
+    {
+      name: 'Documentos',
+      rows: [
+        [
+          { text: 'Código do Documento', style: STYLE.HEADER },
+          { text: 'eGRDT', style: STYLE.HEADER },
+          { text: 'Data Efetiva de Emissão', style: STYLE.HEADER },
+          { text: 'Revisão', style: STYLE.HEADER },
+        ],
+        [{ text: 'LD-001-DOC-01' }, { text: '000' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'A' }],
+      ],
+      options: {},
+    },
+    {
+      // Aba de currículos: coluna do documento rotulada só como "CV" e sem
+      // coluna de Revisão — a atualização precisa funcionar assim mesmo.
+      name: 'CV',
+      rows: [
+        [
+          { text: 'CV', style: STYLE.HEADER },
+          { text: 'GRDT', style: STYLE.HEADER },
+          { text: 'Data Efetiva de Emissão', style: STYLE.HEADER },
+        ],
+        [{ text: 'CV-001' }, { text: '111' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }],
+        [{ text: 'CV-002' }, { text: '222' }, { dateSerial: SERIAL_2026_02_02, style: STYLE.DATE }],
+        // Currículo fora da relação: linha intocada.
+        [{ text: 'CV-003' }, { text: '333' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }],
+      ],
+      options: {},
+    },
+    { name: 'Resumo', rows: secondSheetRows(), options: {} },
+  ]);
+
+  const cvRelMeta = await V.tasks.open({ fileId: 'cv-rel', name: 'RELACAO_CV.xlsx', bytes: cvRelationBytes, hash: 'cv-rel', profile: 'relation' });
+  const cvLdMeta = await V.tasks.open({ fileId: 'cv-ld', name: 'LD_001.xlsx', bytes: cvLdBytes, hash: 'cv-ld', profile: 'ld' });
+
+  equal('LD_001 propõe duas abas para atualizar', cvLdMeta.mappings.length, 2);
+  equal('primeira aba é a de documentos', cvLdMeta.mappings[0].sheetName, 'Documentos');
+  equal('mapping principal continua sendo o da 1ª aba', cvLdMeta.mapping.sheetName, 'Documentos');
+  equal('segunda aba é a de CV', cvLdMeta.mappings[1].sheetName, 'CV');
+  equal('aba de CV identificada pelo papel', cvLdMeta.mappings[1].role, 'cv');
+  equal('aba de CV vem marcada para atualizar', cvLdMeta.mappings[1].enabled, true);
+  equal('coluna de documento da aba de CV', cvLdMeta.mappings[1].documentCol, 1);
+  equal('coluna de GRDT da aba de CV', cvLdMeta.mappings[1].grdtCol, 2);
+  equal('coluna de data da aba de CV', cvLdMeta.mappings[1].dateCol, 3);
+  equal('aba de CV sem coluna de Revisão', cvLdMeta.mappings[1].revisionCol, null);
+  check('aba Resumo não vira alvo de atualização', !cvLdMeta.mappings.some((m) => m.sheetName === 'Resumo'));
+
+  const cvRelIndex = await V.tasks.indexRelation({ fileId: 'cv-rel', mapping: cvRelMeta.mapping });
+  const cvDocIndex = await V.tasks.indexLd({ fileId: 'cv-ld', mapping: cvLdMeta.mappings[0] });
+  const cvSheetIndex = await V.tasks.indexLd({ fileId: 'cv-ld', mapping: cvLdMeta.mappings[1] });
+
+  equal('aba de documentos indexada', cvDocIndex.entries.length, 1);
+  equal('aba de CV indexada', cvSheetIndex.entries.length, 3);
+  equal('ocorrência da aba de CV sabe de qual aba veio', cvSheetIndex.entries[0].sheetName, 'CV');
+  check('ocorrência da aba de CV registra a ausência de Revisão', cvSheetIndex.entries[0].hasRevisionCol === false);
+
+  const cvGlobal = V.indexer.buildGlobalIndex([cvDocIndex, cvSheetIndex]);
+  const cvFiles = new Map([['cv-ld', { id: 'cv-ld', name: 'LD_001.xlsx', sheetName: 'Documentos' }]]);
+  const cvAnalysis = V.analyzer.analyze(cvRelIndex, cvGlobal, cvFiles);
+
+  const cvRecord = (doc) => cvAnalysis.records.find((r) => r.document === doc);
+  equal('CV-001 é encontrado na aba de CV', cvRecord('CV-001').sheetName, 'CV');
+  equal('documento comum continua na aba de documentos', cvRecord('LD-001-DOC-01').sheetName, 'Documentos');
+  check('CV-001 atualiza GRDT e data', cvRecord('CV-001').grdtWillChange && cvRecord('CV-001').dateWillChange);
+  check('CV-002 preserva a data (postagem inválida)', cvRecord('CV-002').dateWillChange === false);
+  check('CV-002 ainda atualiza a GRDT', cvRecord('CV-002').grdtWillChange === true);
+  check('CV-001 não promete Revisão em aba sem essa coluna', cvRecord('CV-001').revisionWillChange === false);
+  check('motivo do registro aponta arquivo, aba e linha', /LD_001\.xlsx · CV · linha 2/.test(cvRecord('CV-001').reason), cvRecord('CV-001').reason);
+  check('documento comum atualiza a Revisão', cvRecord('LD-001-DOC-01').revisionWillChange === true);
+  equal('alterações previstas em duas abas', cvAnalysis.stats.sheetsWithChanges, 2);
+
+  // Aba de CV mapeada só com documento e data (sem GRDT): o campo que não
+  // existe na aba não é prometido na prévia nem gravado depois.
+  const cvNoGrdtIndex = await V.tasks.indexLd({
+    fileId: 'cv-ld',
+    mapping: { ...cvLdMeta.mappings[1], grdtCol: null },
+  });
+  const cvNoGrdtAnalysis = V.analyzer.analyze(
+    cvRelIndex,
+    V.indexer.buildGlobalIndex([cvNoGrdtIndex]),
+    cvFiles
+  );
+  const cvNoGrdt = cvNoGrdtAnalysis.records.find((r) => r.document === 'CV-001');
+  check('sem coluna de GRDT na aba, a GRDT não é alterada', cvNoGrdt.grdtWillChange === false);
+  check('data continua sendo atualizada', cvNoGrdt.dateWillChange === true);
+  check('motivo registra a coluna ausente', /não tem coluna de GRDT mapeada/.test(cvNoGrdt.reason), cvNoGrdt.reason);
+
+  const cvPlan = cvAnalysis.plans.get('cv-ld');
+  equal('um único plano por arquivo, com as duas abas', new Set(cvPlan.map((i) => i.sheetPath)).size, 2);
+
+  const cvApplied = await V.tasks.apply({
+    fileId: 'cv-ld',
+    mapping: cvLdMeta.mappings[0],
+    mappings: cvLdMeta.mappings,
+    plan: cvPlan,
+    options: { verify: true },
+  });
+
+  check('gravação nas duas abas concluída', cvApplied.ok === true, cvApplied.error);
+  equal('duas abas gravadas no mesmo arquivo', cvApplied.sheets.length, 2);
+  check('integridade aprovada nas duas abas', cvApplied.integrity.ok === true && cvApplied.integrity.verified === true);
+  equal('abas atualizadas listadas na saída', cvApplied.sheetNames.join(' + '), 'Documentos + CV');
+  equal('um único arquivo gerado', cvApplied.outputName, 'LD_001_ATUALIZADA_GRDT.xlsx');
+
+  const cvOutDocs = await openSheetModel(cvApplied.bytes, 'saida-cv', 'Documentos', [1, 2, 3, 4]);
+  equal('GRDT do documento comum gravada', V.xlsx.cellDisplay(V.xlsx.getCell(cvOutDocs.model, 2, 2)), '700100');
+  equal('data do documento comum gravada', V.xlsx.cellDisplay(V.xlsx.getCell(cvOutDocs.model, 2, 3)), '04/08/2026');
+  equal('revisão do documento comum gravada', V.xlsx.cellDisplay(V.xlsx.getCell(cvOutDocs.model, 2, 4)), 'B');
+
+  const cvOutCv = await openSheetModel(cvApplied.bytes, 'saida-cv', 'CV', [1, 2, 3]);
+  equal('GRDT de CV-001 gravada na aba de CV', V.xlsx.cellDisplay(V.xlsx.getCell(cvOutCv.model, 2, 2)), '700200');
+  const cvDate001 = V.xlsx.getCell(cvOutCv.model, 2, 3);
+  check('data de CV-001 é data real do Excel', cvDate001.isDate === true, `numeric=${cvDate001.numeric}`);
+  equal('data de CV-001 sem hora', cvDate001.numeric, SERIAL_2026_08_05);
+  equal('GRDT de CV-002 gravada', V.xlsx.cellDisplay(V.xlsx.getCell(cvOutCv.model, 3, 2)), '700300');
+  equal('data de CV-002 preservada', V.xlsx.cellDisplay(V.xlsx.getCell(cvOutCv.model, 3, 3)), '02/02/2026');
+  equal('CV-003 (fora da relação) intocado', V.xlsx.cellDisplay(V.xlsx.getCell(cvOutCv.model, 4, 2)), '333');
+
+  const resumoBefore = await partText(cvLdBytes, 'xl/worksheets/sheet3.xml');
+  const resumoAfter = await partText(cvApplied.bytes, 'xl/worksheets/sheet3.xml');
+  check('aba fora do mapeamento permanece byte a byte idêntica', resumoBefore === resumoAfter);
+
+  // Aba de CV desmarcada: o plano dela é descartado, nunca redirecionado.
+  const cvOffMeta = await V.tasks.open({ fileId: 'cv-off', name: 'LD_001.xlsx', bytes: cvLdBytes, hash: 'cv-off', profile: 'ld' });
+  const cvOffPlan = cvPlan.map((item) => ({ ...item }));
+  const cvOffApplied = await V.tasks.apply({
+    fileId: 'cv-off',
+    mapping: cvOffMeta.mappings[0],
+    mappings: [cvOffMeta.mappings[0], { ...cvOffMeta.mappings[1], enabled: false }],
+    plan: cvOffPlan,
+    options: { verify: true },
+  });
+  check('arquivo gerado mesmo com a aba de CV desmarcada', cvOffApplied.ok === true, cvOffApplied.error);
+  equal('só a aba de documentos foi gravada', cvOffApplied.sheets.length, 1);
+  check(
+    'itens da aba desmarcada ficam registrados como bloqueados',
+    cvOffApplied.results.some((r) => r.outcome === 'BLOQUEADO' && /não está entre as abas habilitadas/.test(r.reason || ''))
+  );
+  const cvOffOut = await openSheetModel(cvOffApplied.bytes, 'saida-cv-off', 'CV', [1, 2, 3]);
+  equal('aba de CV desmarcada permanece com a GRDT original', V.xlsx.cellDisplay(V.xlsx.getCell(cvOffOut.model, 2, 2)), '111');
 
   /* ---------------- Liberação ---------------- */
   suite('Gerenciamento de memória');

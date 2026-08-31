@@ -1,7 +1,13 @@
 /**
  * Vincula — aplicação do plano de escrita, com snapshot e rollback.
  *
- * Sequência de segurança de cada LD:
+ * Uma LD pode ter mais de uma aba atualizável (a lista de documentos e a de
+ * CV/currículos, por exemplo). Cada aba passa pela sequência completa de
+ * segurança abaixo e fica *pendente* no pacote; o commit único só acontece
+ * quando todas as abas passam. Se qualquer uma reprovar, nada é gravado —
+ * o arquivo gerado nunca sai pela metade.
+ *
+ * Sequência de segurança de cada aba:
  *   1. snapshot  — o XML original da aba é retido em memória e seu SHA-256
  *                  registrado na auditoria;
  *   2. validação — cada célula-alvo é inspecionada (fórmula, mesclagem,
@@ -35,17 +41,21 @@
   }
 
   /**
+   * Aplica o plano de UMA aba e deixa a nova versão pendente no pacote.
+   * Não faz commit nem rollback: quem orquestra decide, depois de conhecer o
+   * resultado de todas as abas do arquivo.
+   *
    * @param {object} wb      pasta de trabalho aberta
    * @param {object} sheet   metadados da aba mapeada
    * @param {object} model   modelo varrido da aba (contém o XML original)
    * @param {object} mapping colunas confirmadas pelo usuário
    * @param {Array} plan     itens {recordId, document, row, grdt, dateIso, revision}
-   * @param {{verify?:boolean, level?:number}} options
+   * @param {{verify?:boolean}} options
    */
-  async function applyPlan(wb, sheet, model, mapping, plan, options = {}) {
+  async function applySheetPlan(wb, sheet, model, mapping, plan, options = {}) {
     const verify = options.verify !== false;
-    const grdtCol = Number(mapping.grdtCol);
-    const dateCol = Number(mapping.dateCol);
+    const grdtCol = Number(mapping.grdtCol) || null;
+    const dateCol = Number(mapping.dateCol) || null;
     const revisionCol = Number(mapping.revisionCol) || null;
 
     const snapshotXml = model.xml;
@@ -73,8 +83,10 @@
     try {
       for (const item of plan) {
         const targets = [];
-        if (item.grdt !== null && item.grdt !== undefined) targets.push({ field: 'GRDT', col: grdtCol });
-        if (item.dateIso) targets.push({ field: 'DATA', col: dateCol });
+        // Uma coluna não mapeada nesta aba simplesmente não é gravada: a aba
+        // de CV pode não repetir todos os campos da aba de documentos.
+        if (item.grdt !== null && item.grdt !== undefined && grdtCol) targets.push({ field: 'GRDT', col: grdtCol });
+        if (item.dateIso && dateCol) targets.push({ field: 'DATA', col: dateCol });
         if (item.revision !== null && item.revision !== undefined && revisionCol) {
           targets.push({ field: 'REVISAO', col: revisionCol });
         }
@@ -154,14 +166,11 @@
       }
 
       X.stagePart(wb, sheet.path, updatedXml);
-      const bytes = await X.commit(wb, { level: options.level ?? 9 });
-      const outputHash = await sha256Hex(bytes);
 
       return {
         ok: true,
-        outputName: outputName(wb.name),
-        bytes,
-        outputHash,
+        sheetName: sheet.name,
+        sheetPath: sheet.path,
         snapshotHash,
         results,
         occurrences,
@@ -176,18 +185,28 @@
         counters: { grdtWrites, dateWrites, revisionWrites, authorizedCells: editor.authorized.size },
       };
     } catch (error) {
-      // Rollback: nada foi escrito no ZIP, basta descartar as emendas.
-      X.rollback(wb);
       return {
         ok: false,
         error: error && error.message ? error.message : String(error),
+        sheetName: sheet.name,
+        sheetPath: sheet.path,
         snapshotHash,
         results,
         occurrences,
-        rolledBack: true,
       };
     }
   }
 
-  V.applier = { applyPlan, outputName, OUTCOME };
+  /** Fecha o pacote com todas as abas pendentes já validadas. */
+  async function finalize(wb, options = {}) {
+    const bytes = await X.commit(wb, { level: options.level ?? 9 });
+    return { outputName: outputName(wb.name), bytes, outputHash: await sha256Hex(bytes) };
+  }
+
+  /** Descarta tudo o que estava pendente: o pacote original fica intacto. */
+  function rollback(wb) {
+    X.rollback(wb);
+  }
+
+  V.applier = { applySheetPlan, finalize, rollback, outputName, OUTCOME };
 })(typeof self !== 'undefined' ? self : this);

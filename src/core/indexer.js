@@ -102,15 +102,19 @@
   }
 
   /**
-   * Índice de uma LD. Devolve uma lista plana e serializável; o índice global
-   * (documento → ocorrências) é montado na página, unindo todas as LDs.
+   * Índice de uma aba de LD. Devolve uma lista plana e serializável; o índice
+   * global (documento → ocorrências) é montado na página, unindo todas as LDs
+   * e todas as abas mapeadas de cada uma — a de documentos e a de CV
+   * (currículos), quando existe.
    */
   function buildLdEntries(wb, model, mapping, fileId) {
     const documentCol = Number(mapping.documentCol);
-    const grdtCol = Number(mapping.grdtCol);
-    const dateCol = Number(mapping.dateCol);
+    const grdtCol = Number(mapping.grdtCol) || null;
+    const dateCol = Number(mapping.dateCol) || null;
     const revisionCol = Number(mapping.revisionCol) || null;
     const firstRow = Number(mapping.headerRow) + 1;
+    const sheetPath = mapping.sheetPath || '';
+    const sheetName = mapping.sheetName || '';
 
     const entries = [];
     for (let row = firstRow; row <= model.maxRow; row++) {
@@ -118,12 +122,14 @@
       const document = normalizeDocument(rawDocument);
       if (!document) continue;
 
-      const grdtCell = X.getCell(model, row, grdtCol);
-      const dateCell = X.getCell(model, row, dateCol);
+      const grdtCell = grdtCol ? X.getCell(model, row, grdtCol) : null;
+      const dateCell = dateCol ? X.getCell(model, row, dateCol) : null;
       const revisionCell = revisionCol ? X.getCell(model, row, revisionCol) : null;
 
       entries.push({
         fileId,
+        sheetPath,
+        sheetName,
         document,
         rawDocument,
         row,
@@ -131,6 +137,12 @@
         beforeDate: X.cellDisplay(dateCell),
         beforeDateSerial: dateCell && dateCell.isDate ? D.truncateSerial(dateCell.numeric) : null,
         beforeRevisao: revisionCol ? X.cellDisplay(revisionCell) : '',
+        // Campos que esta aba realmente possui: a de CV pode não repetir
+        // todas as colunas da aba de documentos, e o que não existe aqui não
+        // pode ser prometido na prévia nem gravado depois.
+        hasGrdtCol: !!grdtCol,
+        hasDateCol: !!dateCol,
+        hasRevisionCol: !!revisionCol,
         dateCellIsDate: !!(dateCell && dateCell.isDate),
         grdtHasFormula: !!(grdtCell && grdtCell.hasFormula),
         dateHasFormula: !!(dateCell && dateCell.hasFormula),

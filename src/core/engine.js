@@ -109,6 +109,32 @@
     }
 
     /* ---------------------------------------------------------------- *
+     * Abas mapeadas (alvos)
+     *
+     * Cada arquivo carrega uma lista de abas a atualizar. A Relação GRCON tem
+     * sempre uma; a LD costuma ter a aba de documentos e, quando existe, a de
+     * CV (currículos) — todas passam pela mesma indexação e pela mesma
+     * gravação, dentro do mesmo arquivo de saída.
+     * ---------------------------------------------------------------- */
+
+    function hydrateMappings(meta) {
+      const source = meta.mappings && meta.mappings.length ? meta.mappings : [meta.mapping];
+      return source.map((mapping, index) => ({ enabled: true, primary: index === 0, ...mapping }));
+    }
+
+    function enabledMappings(file) {
+      const list = file.mappings && file.mappings.length ? file.mappings : file.mapping ? [file.mapping] : [];
+      return list.filter((mapping) => mapping && mapping.enabled !== false);
+    }
+
+    /** Rótulo das abas de um arquivo, para relatório e log. */
+    function sheetLabel(file) {
+      return enabledMappings(file)
+        .map((mapping) => mapping.sheetName)
+        .join(' + ');
+    }
+
+    /* ---------------------------------------------------------------- *
      * Carga de arquivos
      * ---------------------------------------------------------------- */
 
@@ -137,13 +163,15 @@
 
       const fileId = `rel-${++sequence}`;
       const meta = await openInPool(file, 'relation', fileId);
+      const relationMappings = hydrateMappings(meta);
       state.relation = {
         fileId,
         name: file.name,
         size: file.size,
         hash: meta.hash,
         meta,
-        mapping: { ...meta.mapping },
+        mappings: relationMappings,
+        mapping: relationMappings[0],
       };
       state.analysis = null;
       state.timings.leituraRelacao = Date.now() - started;
@@ -174,13 +202,17 @@
           try {
             checkCancelled();
             const meta = await openInPool(file, 'ld', fileId);
+            const mappings = hydrateMappings(meta);
             loaded.push({
               fileId,
               name: file.name,
               size: file.size,
               hash: meta.hash,
               meta,
-              mapping: { ...meta.mapping },
+              mappings,
+              // A primeira aba continua sendo "o" mapeamento do arquivo; as
+              // demais (CV/currículos, por exemplo) vêm logo atrás.
+              mapping: mappings[0],
               fromCache: meta.fromCache,
             });
           } catch (error) {
@@ -199,6 +231,14 @@
       state.lds = loaded;
       state.analysis = null;
       state.timings.leituraLds = Date.now() - started;
+
+      const extraSheets = loaded
+        .filter((ld) => !ld.error && ld.mappings.length > 1)
+        .map((ld) => `${ld.name}: ${ld.mappings.slice(1).map((m) => m.sheetName).join(', ')}`);
+      if (extraSheets.length) {
+        log('info', `${extraSheets.length} LD(s) com mais de uma aba a atualizar`, extraSheets);
+      }
+
       log('info', `${loaded.filter((l) => !l.error).length} LD(s) carregada(s)`, { tempoMs: state.timings.leituraLds });
       return state.lds;
     }
@@ -218,19 +258,38 @@
 
     function validateMappings() {
       const targets = [
-        { label: `Relação ${state.relation.name}`, mapping: state.relation.mapping },
-        ...state.lds.filter((ld) => !ld.error).map((ld) => ({ label: ld.name, mapping: ld.mapping })),
+        { label: `Relação ${state.relation.name}`, mapping: state.relation.mapping, primary: true },
+        ...state.lds
+          .filter((ld) => !ld.error)
+          .flatMap((ld) =>
+            enabledMappings(ld).map((mapping) => ({
+              label: mapping.primary ? ld.name : `${ld.name} · aba ${mapping.sheetName}`,
+              mapping,
+              primary: !!mapping.primary,
+            }))
+          ),
       ];
+
+      const seen = new Set();
       for (const target of targets) {
         const { documentCol, grdtCol, dateCol, revisionCol } = target.mapping;
-        if (!documentCol || !grdtCol || !dateCol) {
-          throw new Error(`Associe Documento, GRDT e Data em "${target.label}".`);
+        // Na aba principal os três campos são obrigatórios. Numa aba adicional
+        // (CV, por exemplo) basta o documento e ao menos um campo gravável —
+        // ela não precisa repetir todas as colunas da aba de documentos.
+        if (!documentCol || (target.primary ? !grdtCol || !dateCol : !grdtCol && !dateCol)) {
+          throw new Error(
+            target.primary
+              ? `Associe Documento, GRDT e Data em "${target.label}".`
+              : `Associe Documento e ao menos GRDT ou Data em "${target.label}", ou desmarque a aba.`
+          );
         }
-        const cols = [documentCol, grdtCol, dateCol];
-        if (revisionCol) cols.push(revisionCol);
+        const cols = [documentCol, grdtCol, dateCol, revisionCol].filter(Boolean);
         if (new Set(cols).size < cols.length) {
           throw new Error(`Uma mesma coluna foi associada a dois campos em "${target.label}".`);
         }
+        const key = `${target.label}|${target.mapping.sheetPath}`;
+        if (seen.has(key)) throw new Error(`A aba "${target.mapping.sheetName}" foi mapeada duas vezes em "${target.label}".`);
+        seen.add(key);
       }
     }
 
@@ -260,17 +319,22 @@
       publishMetrics();
       progress('indexacao', 25, `${relationIndex.uniqueDocuments} documento(s) únicos na relação`);
 
+      // Um alvo por aba mapeada: a mesma LD entra mais de uma vez quando tem
+      // aba de documentos e aba de CV (currículos).
+      const sheetTargets = usable.flatMap((ld) => enabledMappings(ld).map((mapping) => ({ ld, mapping })));
+      if (!sheetTargets.length) throw new Error('Nenhuma aba habilitada para atualização nas LDs carregadas.');
+
       let indexed = 0;
       const files = new Map();
       const ldIndexes = await pool.map(
-        usable,
-        (ld) => ({ type: 'indexLd', payload: { fileId: ld.fileId, mapping: ld.mapping }, fileId: ld.fileId }),
+        sheetTargets,
+        ({ ld, mapping }) => ({ type: 'indexLd', payload: { fileId: ld.fileId, mapping }, fileId: ld.fileId }),
         (result) => {
           indexed++;
           progress(
             'indexacao',
-            25 + Math.round((indexed / usable.length) * 65),
-            `${indexed}/${usable.length} LD(s) indexada(s)${result.value && result.value.fromCache ? ' (cache)' : ''}`
+            25 + Math.round((indexed / sheetTargets.length) * 65),
+            `${indexed}/${sheetTargets.length} aba(s) de LD indexada(s)${result.value && result.value.fromCache ? ' (cache)' : ''}`
           );
           publishMetrics();
         }
@@ -278,14 +342,19 @@
       checkCancelled();
 
       const indexedFiles = [];
+      const indexedSheets = new Set();
       for (let i = 0; i < ldIndexes.length; i++) {
         const result = ldIndexes[i];
-        const ld = usable[i];
+        const { ld, mapping } = sheetTargets[i];
         if (!result.ok) {
-          log('error', `Falha ao indexar ${ld.name}`, result.error.message);
+          log('error', `Falha ao indexar ${ld.name} · aba ${mapping.sheetName}`, result.error.message);
           continue;
         }
-        files.set(ld.fileId, { id: ld.fileId, name: result.value.name, sheetName: result.value.sheetName });
+        // O nome do arquivo é por arquivo; a aba, por ocorrência.
+        if (!files.has(ld.fileId)) {
+          files.set(ld.fileId, { id: ld.fileId, name: result.value.name, sheetName: ld.mapping.sheetName });
+        }
+        indexedSheets.add(`${ld.fileId}|${mapping.sheetPath}`);
         indexedFiles.push(result.value);
       }
       if (!indexedFiles.length) throw new Error('Nenhuma LD pôde ser indexada.');
@@ -313,8 +382,12 @@
       metrics.documentsChanged = analysis.stats.willChange;
       publishMetrics();
 
-      progress('analise', 100, `${analysis.stats.willChange} alteração(ões) prevista(s)`);
-      log('info', 'Análise concluída', analysis.stats);
+      progress(
+        'analise',
+        100,
+        `${analysis.stats.willChange} alteração(ões) prevista(s) em ${analysis.stats.sheetsWithChanges} aba(s)`
+      );
+      log('info', 'Análise concluída', { ...analysis.stats, abasIndexadas: indexedSheets.size });
       return analysis;
     }
 
@@ -349,6 +422,9 @@
           payload: {
             fileId: ld.fileId,
             mapping: ld.mapping,
+            // Todas as abas mapeadas do arquivo vão na mesma tarefa: o plano é
+            // dividido por aba lá dentro e o pacote é fechado uma única vez.
+            mappings: enabledMappings(ld),
             plan,
             options: { verify: generateOptions.verify !== false, level: 9 },
           },
@@ -391,6 +467,7 @@
         outputs.push({
           name: value.outputName,
           source: value.name,
+          sheets: (value.sheetNames || [value.sheetName]).filter(Boolean).join(' + '),
           bytes: value.bytes,
           size: value.bytes.length,
           hash: value.outputHash,
@@ -443,6 +520,7 @@
         'Relação GRCON': state.relation.name,
         'Quantidade de LD carregadas': state.lds.length,
         'Quantidade de LD atualizadas': outputs.length,
+        'Quantidade de abas atualizadas': analysis.stats.sheetsWithChanges,
         'Quantidade de documentos (relação)': analysis.stats.relationDocuments,
         'Quantidade de correspondências analisadas': analysis.stats.records,
         'Documentos encontrados': analysis.stats.found,
@@ -477,7 +555,12 @@
         files: state.lds.map((ld) => ({
           arquivo: ld.name,
           hash: ld.hash,
-          aba: ld.mapping ? ld.mapping.sheetName : '',
+          aba: sheetLabel(ld),
+          abas: enabledMappings(ld).map((mapping) => ({
+            aba: mapping.sheetName,
+            papel: mapping.roleLabel || (mapping.primary ? 'Documentos' : ''),
+            linhaCabecalho: mapping.headerRow,
+          })),
           erro: ld.error || null,
         })),
         timings: state.timings,

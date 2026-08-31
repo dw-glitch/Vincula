@@ -9,19 +9,20 @@ flowchart TD
     B --> C{Já indexado<br/>nesta sessão?}
     C -->|hash igual| C1[Reaproveita do cache]
     C -->|hash novo| D[Abre ZIP no worker]
-    D --> E[Amostra de cabeçalhos<br/>+ detecção automática]
+    D --> E[Amostra de TODAS as abas<br/>+ detecção automática]
     C1 --> F
-    E --> F[Confirmação do mapeamento]
-    F --> G[Indexação em paralelo]
-    G --> H[Índice global<br/>documento → ocorrências]
+    E --> E2[Alvos: aba de documentos<br/>+ aba de CV/currículos]
+    E2 --> F[Confirmação do mapeamento<br/>um cartão por aba]
+    F --> G[Indexação em paralelo<br/>uma tarefa por aba]
+    G --> H[Índice global<br/>documento → ocorrências aba a aba]
     H --> I[Cruzamento e plano de escrita]
     I --> J[Pré-visualização<br/>filtros · busca · estatísticas]
     J --> K{Usuário autoriza?}
     K -->|não| J
-    K -->|sim| L[Atualização por LD, em paralelo]
-    L --> M[Auditoria de integridade]
-    M -->|reprovada| N[Rollback<br/>arquivo não entra no pacote]
-    M -->|aprovada| O[Commit no ZIP]
+    K -->|sim| L[Atualização por LD, em paralelo<br/>todas as abas do arquivo]
+    L --> M[Auditoria de integridade<br/>aba a aba]
+    M -->|qualquer aba reprovada| N[Rollback total<br/>arquivo não entra no pacote]
+    M -->|todas aprovadas| O[Commit único no ZIP]
     N --> P
     O --> P[Relatório XLSX + log JSON]
     P --> Q[Pacote ZIP com manifesto de hashes]
@@ -37,27 +38,30 @@ flowchart TD
         ├───────────────────────────►  open
         │                                ├─ JSZip.loadAsync
         │                                ├─ sharedStrings + styles
-        │                                ├─ amostra dos cabeçalhos (para no 1º acerto)
-        │  ◄── metadados + sugestão ──────┘
+        │                                ├─ amostra de todas as abas (LD)
+        │                                ├─ classifica papéis (documentos, CV)
+        │  ◄─ metadados + alvos ──────────┴─ propõe um mapeamento por aba
         │
-  usuário confirma o mapeamento
+  usuário confirma o mapeamento de cada aba
         │
-        ├───────────────────────────►  indexLd
+        ├───────────────────────────►  indexLd  (uma chamada por aba)
         │                                ├─ lê XML da aba
         │                                ├─ varredura por offsets (só 3 colunas)
-        │                                ├─ monta entries
+        │                                ├─ monta entries com a aba de origem
         │  ◄──── entries ─────────────────┴─ libera o XML
         │
-  índice global + análise + plano
+  índice global + análise + plano (cada item sabe sua aba)
         │
-        ├───────────────────────────►  apply
+        ├───────────────────────────►  apply   (todas as abas do arquivo)
+        │                              para cada aba com itens:
         │                                ├─ relê XML da aba
         │                                ├─ snapshot + SHA-256
         │                                ├─ inspeciona cada célula-alvo
         │                                ├─ acumula emendas
         │                                ├─ render + auditoria de integridade
-        │                                ├─ commit no ZIP + DEFLATE 9
-        │  ◄─ bytes transferidos ─────────┴─ libera o XML
+        │                                ├─ deixa a aba pendente + libera o XML
+        │                              ao fim, se todas passaram:
+        │  ◄─ bytes transferidos ─────────┴─ commit único + DEFLATE 9
         │
   relatório · pacote · downloads
 ```
@@ -66,9 +70,9 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    S[Documento da relação] --> T{Existe em<br/>alguma LD?}
+    S[Documento da relação] --> T{Existe em alguma<br/>aba mapeada?}
     T -->|não| U[NÃO ENCONTRADO<br/>'Documento pertence a outra LD'<br/>não interrompe]
-    T -->|sim| V[Para cada ocorrência na LD]
+    T -->|sim| V[Para cada ocorrência<br/>arquivo + aba + linha]
 
     V --> W{GRDT da relação<br/>tem valor válido?}
     W -->|não| W1[Preserva GRDT da LD<br/>marca GRDT_AUSENTE]
@@ -106,7 +110,7 @@ usar um campo único (um documento duplicado *com data inválida* aparecia só c
 | Marcador | Significado |
 |---|---|
 | `DUPLICADO_RELACAO` | documento repetido na relação; venceu a última ocorrência |
-| `DUPLICADO_LD` | documento repetido nas LDs; todas as ocorrências atualizadas |
+| `DUPLICADO_LD` | documento repetido nas LDs ou em mais de uma aba da mesma LD; todas as ocorrências atualizadas |
 | `DATA_INVALIDA` | data da postagem inválida; data da LD preservada |
 | `GRDT_AUSENTE` | GRDT sem valor na relação; GRDT da LD preservada |
 | `DATA_TEXTO` | data estava como texto e foi convertida em data real do Excel |
@@ -120,8 +124,8 @@ O motor emite seis fases; a interface as agrupa nas quatro barras do vocabulári
 
 | Fase do motor | Barra | O que acontece |
 |---|---|---|
-| `leitura` | Leitura | `File` → bytes → SHA-256 → abertura do ZIP → amostra de cabeçalhos |
-| `indexacao` | Indexação | varredura das colunas mapeadas, construção dos índices |
+| `leitura` | Leitura | `File` → bytes → SHA-256 → abertura do ZIP → amostra das abas |
+| `indexacao` | Indexação | varredura das colunas mapeadas de cada aba, construção dos índices |
 | `analise` | Indexação | índice global, cruzamento, montagem do plano |
 | `atualizacao` | Atualização | emendas, auditoria de integridade, commit |
 | `relatorio` | Compactação ZIP | relatório XLSX + log JSON |

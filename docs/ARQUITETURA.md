@@ -78,13 +78,21 @@ sistema de datas (1900/1904) de cada arquivo.
 
 ### 4.2 Índice de LD e índice global
 
-Cada LD produz uma lista plana:
+Cada **aba mapeada** de cada LD produz uma lista plana — uma LD com aba de documentos e aba de
+CV (currículos) é indexada duas vezes, sob o mesmo `fileId`:
 
 ```
-entry = { fileId, document, rawDocument, row,
-          beforeGrdt, beforeDate, beforeDateSerial,
+entry = { fileId, sheetPath, sheetName, document, rawDocument, row,
+          beforeGrdt, beforeDate, beforeDateSerial, beforeRevisao,
+          hasGrdtCol, hasDateCol, hasRevisionCol,
           dateCellIsDate, grdtHasFormula, dateHasFormula }
 ```
+
+`sheetPath` acompanha a ocorrência até o plano de escrita: a mesma linha em outra aba é outro
+documento, então um item de plano nunca é redirecionado de uma aba para outra. `hasGrdtCol`,
+`hasDateCol` e `hasRevisionCol` registram quais campos aquela aba realmente tem — a de CV
+costuma não repetir todas as colunas da aba de documentos, e o que não existe ali não é
+prometido na prévia nem gravado depois.
 
 A página une todas em um índice global:
 
@@ -102,6 +110,27 @@ Medido em `tests/bench.js`: **0,28 µs por busca** com 20.000 documentos indexad
 `beforeDateSerial` e `dateCellIsDate` alimentam a **escrita inteligente** — a comparação entre
 valor atual e novo valor é feita no índice, sem reabrir a planilha.
 
+### 4.4 Alvos de atualização
+
+Um **alvo** é uma aba mapeada: `{ aba, linha de cabeçalho, colunas, papel, habilitada }`.
+A Relação GRCON tem sempre um; a LD tem um por aba atualizável.
+
+```
+meta.mappings = [ alvo da aba de documentos, alvo da aba de CV, … ]
+meta.mapping  = meta.mappings[0]          // compatibilidade: "o" mapeamento do arquivo
+```
+
+Na abertura, o perfil `ld` amostra **todas** as abas (teto de 24) e propõe como alvo cada uma que
+resolva Documento, GRDT e Data; a aba classificada como `cv` pelo nome é aceita com documento
+mais um campo gravável, já que muitas listas de currículo não repetem todas as colunas. Abas
+ocultas entram desmarcadas. O nome da aba só *classifica* (`classifySheet` → `cv` /
+`documentos`); quem decide se ela é atualizável é sempre o cabeçalho.
+
+O papel também escolhe o perfil de detecção: na aba de CV vale o perfil `ldCv`, em que a coluna
+de documento aceita `CV`, `Currículo`, `Código do CV`. Esse vocabulário continua fora do perfil
+`ld`, para que uma coluna auxiliar chamada "CV" na aba de documentos não concorra com
+"DOCUMENTO".
+
 ### 4.3 Chave canônica
 
 `normalizeDocument` produz a chave do índice: espaços colapsados, traços Unicode convertidos,
@@ -115,7 +144,7 @@ O cache vive **dentro do worker**, junto do ZIP já descompactado.
 | Nível | Chave | Invalidação |
 |---|---|---|
 | Pasta de trabalho aberta | `SHA-256(conteúdo) + nome + perfil` | conteúdo diferente ⇒ hash diferente ⇒ reabertura automática |
-| Índice calculado | assinatura do mapeamento (`aba + cabeçalho + 3 colunas`) | mudar qualquer coluna invalida só aquele índice |
+| Índice calculado | assinatura do mapeamento (`aba + cabeçalho + 3 colunas`) | mudar qualquer coluna invalida só aquele índice; abas diferentes têm assinaturas diferentes e convivem no mesmo arquivo |
 
 Trocar um arquivo por outro de mesmo nome muda o hash e reabre. Recarregar o mesmo arquivo
 reaproveita tudo. Reindexação com cache quente medida em **~0 ms contra 882 ms a frio**.
@@ -142,19 +171,21 @@ parcial.
 
 ## 7. Estratégia de rollback
 
-O rollback é **estrutural**, não compensatório:
+O rollback é **estrutural**, não compensatório. Os passos 1 a 4 rodam **por aba**; o passo 5
+acontece uma vez por arquivo:
 
 ```
 1. snapshot   XML original da aba retido em memória, SHA-256 registrado
 2. validação  cada célula-alvo inspecionada (fórmula, mesclagem, proteção, validação)
 3. escrita    emendas acumuladas em uma lista — o ZIP não é tocado
-4. auditoria  XML resultante comparado com o snapshot
-5. commit     só então o ZIP recebe a nova versão da aba
+4. auditoria  XML resultante comparado com o snapshot; a aba fica pendente no pacote
+5. commit     só quando TODAS as abas do arquivo passam, o ZIP recebe as novas versões
 ```
 
-Entre os passos 2 e 4 o pacote original está intacto. Qualquer falha — integridade reprovada,
-emendas sobrepostas, exceção inesperada — descarta a lista de emendas e devolve
-`{ ok: false, rolledBack: true }`. Não existe estado intermediário para reverter.
+Entre os passos 2 e 4 o pacote original está intacto. Qualquer falha — integridade reprovada em
+qualquer aba, emendas sobrepostas, exceção inesperada — descarta as emendas de **todas** as abas
+e devolve `{ ok: false, rolledBack: true }`. Não existe estado intermediário para reverter, nem
+arquivo com uma aba nova e outra revertida.
 
 Bloqueios **não** abortam o arquivo: uma célula com fórmula, mesclada ou em linha inexistente é
 registrada como ocorrência e pulada; os demais documentos daquela LD são gravados normalmente.
@@ -180,13 +211,13 @@ não entra no pacote e a falha aparece no relatório.
 | Aba | Conteúdo |
 |---|---|
 | Resumo | versão, modo, tempos por etapa, contagens, hash SHA-256 do pacote |
-| Detalhamento | **todos** os documentos: arquivo, aba, linha, GRDT anterior/nova, data anterior/nova, status, marcadores, timestamp, motivo |
+| Detalhamento | **todos** os documentos: arquivo, **aba de origem**, linha, GRDT anterior/nova, data anterior/nova, status, marcadores, timestamp, motivo |
 | Alterações | apenas o que mudou |
 | Duplicados | ocorrências, linha vencedora, se há conflito, candidatos |
 | Não Encontrados | documento, linha na relação, motivo |
 | Datas Inválidas | valor de origem e data preservada na LD |
 | Ocorrências | fórmulas, mesclagens, proteção e validações encontradas |
-| Arquivos Gerados | tamanho, células autorizadas, gravações, integridade, SHA-256 por arquivo |
+| Arquivos Gerados | abas atualizadas, tamanho, células autorizadas, gravações, integridade, SHA-256 por arquivo |
 
 `LOG_VINCULA.json` traz a mesma informação em formato estruturado, e `MANIFESTO.txt` lista os
 hashes com o comando de verificação (`certutil` / `shasum`).
@@ -200,8 +231,10 @@ Rastreabilidade é de 100% dos documentos processados — inclusive os que não 
 - Só as colunas mapeadas entram no modelo de células.
 - A amostra completa de cabeçalhos fica no worker; para a página vai um recorte
   (40 linhas × 80 colunas, teto de 1.500 células por aba).
-- A decodificação de abas para em quando uma aba resolve os três campos — arquivos com muitas
-  abas auxiliares não pagam por elas.
+- Na Relação GRCON a decodificação de abas para quando uma aba resolve os três campos. Na LD
+  todas as abas são amostradas (só a varredura revela quais são atualizáveis), com teto de 24
+  abas por arquivo; a amostra lê no máximo as 80 primeiras linhas de cada uma.
+- Na gravação, uma aba mapeada sem nada a gravar não é reaberta.
 - `releaseAll` é transmitido a **todas** as lanes, já que cada worker tem seu próprio registro.
 
 ## 10. Escalabilidade
@@ -209,13 +242,17 @@ Rastreabilidade é de 100% dos documentos processados — inclusive os que não 
 Medido em `tests/bench.js` (Node, **thread única, sem paralelismo** — limite superior pessimista;
 no navegador o trabalho ainda se divide entre os workers):
 
-| Cenário | Pipeline completo | Vazão |
-|---|---|---|
-| 100 LDs × 200 documentos | **7,5 s** | 2.651 doc/s |
-| 5 LDs × 4.000 documentos | **7,0 s** | 2.849 doc/s |
+O cenário do bench inclui, em cada LD, uma aba de CV além da aba de documentos — ou seja, o
+número medido já é o do caminho de múltiplas abas:
 
-Meta declarada: 20.000+ documentos em menos de 60 s. Margem de **8×**.
-Integridade aprovada em 100/100 arquivos nos dois cenários.
+| Cenário | Documentos | Abas gravadas | Pipeline completo | Vazão |
+|---|---|---|---|---|
+| 100 LDs × (200 documentos + 10 CVs) | 21.000 | 200 | **11,9 s** | 1.768 doc/s |
+| 5 LDs × (4.000 documentos + 200 CVs) | 21.000 | 10 | **10,0 s** | 2.095 doc/s |
+
+Meta declarada: 20.000+ documentos em menos de 60 s. Margem de **5×**.
+Integridade aprovada em 100/100 e 5/5 arquivos.
+(Os números variam com a máquina; o script falha sozinho se ultrapassar os 60 s.)
 
 O desempenho é estável nos dois extremos — muitos arquivos pequenos ou poucos arquivos grandes —
 porque o custo acompanha o volume total de células, não a quantidade de arquivos.
@@ -226,6 +263,9 @@ porque o custo acompanha o volume total de células, não a quantidade de arquiv
 - **Novos tipos documentais** — a chave canônica está isolada em `normalizeDocument`.
 - **Múltiplas relações** — `buildGlobalIndex` já recebe uma lista; o analisador aceita qualquer
   quantidade de índices de origem.
+- **Novos papéis de aba** — `SHEET_ROLES` em `headers.js` classifica a aba pelo nome e escolhe o
+  perfil de detecção; um novo tipo de aba (memorial, lista de desenhos) entra ali, sem tocar em
+  indexação, gravação ou auditoria.
 - **Novos conectores** — `tasks.js` é um contrato de mensagens; uma origem remota entra como
   novo tipo de tarefa sem tocar no núcleo.
 - **Processamento distribuído** — a granularidade da unidade de trabalho (um arquivo) e o
