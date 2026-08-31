@@ -26,6 +26,9 @@
     filtered: [],
     logEntries: [],
     expandedCards: new Set(),
+    // Recolhido pelo usuário: sem isto, um cartão que abre por padrão (uma aba
+    // adicional, por exemplo) voltaria a abrir a cada redesenho.
+    collapsedCards: new Set(),
     allExpanded: false,
     busy: false,
     searchTimer: null,
@@ -250,9 +253,15 @@
       );
     }
     for (const ld of engine.state.lds) {
+      // Quando a LD traz mais de uma aba atualizável (documentos + CV, por
+      // exemplo), isso aparece já na lista de arquivos.
+      const sheets = ld.error ? [] : targetsOf(ld).filter((m) => m.enabled !== false);
+      const sheetInfo = sheets.length > 1 ? ` · abas: ${sheets.map((m) => m.sheetName).join(', ')}` : '';
       items.push(
         `<div class="file-row${ld.error ? ' bad' : ''}"><span class="tag ld">LD</span><strong>${esc(ld.name)}</strong>
-         <small>${ld.error ? esc(ld.error) : `${formatBytes(ld.size)}${ld.fromCache ? ' · já lida antes' : ''}`}</small></div>`
+         <small>${
+           ld.error ? esc(ld.error) : esc(`${formatBytes(ld.size)}${ld.fromCache ? ' · já lida antes' : ''}${sheetInfo}`)
+         }</small></div>`
       );
     }
     $('fileList').innerHTML = items.join('');
@@ -297,7 +306,12 @@
     return `<select class="select ${cls}" ${attrs}>${empty}${body}</select>`;
   }
 
-  function mappingCard(kind, index, name, meta, mapping, collapsed) {
+  /** Abas do arquivo que já são alvo de atualização. */
+  function targetsOf(file) {
+    return file.mappings && file.mappings.length ? file.mappings : [file.mapping];
+  }
+
+  function mappingCard(kind, index, target, name, meta, mapping, collapsed) {
     const sheet = sheetOf(meta, mapping);
     const choices = columnChoices(sheet, Number(mapping.headerRow));
     const colOptions = choices.map((c) => ({
@@ -319,35 +333,58 @@
 
     const confidence = mapping.confidence || 'baixa';
     const confidenceLabel = { alta: 'Colunas identificadas', media: 'Confira as colunas', baixa: 'Revise as colunas' }[confidence];
-    const complete = mapping.documentCol && mapping.grdtCol && mapping.dateCol;
+    const extra = kind === 'l' && target > 0;
+    // Aba adicional (CV, por exemplo) não precisa repetir todas as colunas da
+    // aba principal: basta o documento e ao menos um campo gravável.
+    const complete = extra
+      ? !!(mapping.documentCol && (mapping.grdtCol || mapping.dateCol))
+      : !!(mapping.documentCol && mapping.grdtCol && mapping.dateCol);
     const dateLabel = kind === 'r' ? 'Data da geração / postagem' : 'Data efetiva de emissão';
+    const cardId = `${kind}-${index}-${target}`;
 
     const body = `
       <div class="mapping-grid">
         <div class="field"><label>Aba</label>
-          ${selectHtml('ms', { k: kind, i: index }, meta.sheets.map((s) => ({ value: s.path, label: s.name + (s.hidden ? ' (oculta)' : '') })), mapping.sheetPath)}
+          ${selectHtml('ms', { k: kind, i: index, t: target }, meta.sheets.map((s) => ({ value: s.path, label: s.name + (s.hidden ? ' (oculta)' : '') })), mapping.sheetPath)}
         </div>
         <div class="field"><label>Linha do cabeçalho</label>
-          ${selectHtml('mr', { k: kind, i: index }, rowOptions, mapping.headerRow)}
+          ${selectHtml('mr', { k: kind, i: index, t: target }, rowOptions, mapping.headerRow)}
         </div>
         <div class="field"><label>Documento</label>
-          ${selectHtml('mc', { k: kind, i: index, f: 'documentCol' }, colOptions, mapping.documentCol, 'Selecione…')}
+          ${selectHtml('mc', { k: kind, i: index, t: target, f: 'documentCol' }, colOptions, mapping.documentCol, 'Selecione…')}
         </div>
         <div class="field"><label>GRDT / eGRDT</label>
-          ${selectHtml('mc', { k: kind, i: index, f: 'grdtCol' }, colOptions, mapping.grdtCol, 'Selecione…')}
+          ${selectHtml('mc', { k: kind, i: index, t: target, f: 'grdtCol' }, colOptions, mapping.grdtCol, 'Selecione…')}
         </div>
         <div class="field"><label>${esc(dateLabel)}</label>
-          ${selectHtml('mc', { k: kind, i: index, f: 'dateCol' }, colOptions, mapping.dateCol, 'Selecione…')}
+          ${selectHtml('mc', { k: kind, i: index, t: target, f: 'dateCol' }, colOptions, mapping.dateCol, 'Selecione…')}
         </div>
         <div class="field"><label>Revisão <small>(opcional)</small></label>
-          ${selectHtml('mc', { k: kind, i: index, f: 'revisionCol' }, colOptions, mapping.revisionCol, 'Nenhuma')}
+          ${selectHtml('mc', { k: kind, i: index, t: target, f: 'revisionCol' }, colOptions, mapping.revisionCol, 'Nenhuma')}
         </div>
       </div>
-      <div class="file-meta">${esc(sheet.name)} · ${formatNumber(sheet.maxRow)} linhas · ${formatNumber(sheet.maxCol)} colunas</div>`;
+      <div class="file-meta">${esc(sheet.name)} · ${formatNumber(sheet.maxRow)} linhas · ${formatNumber(sheet.maxCol)} colunas</div>
+      ${
+        extra
+          ? `<div class="sheet-actions">
+               <label class="sheet-toggle"><input class="mt" type="checkbox" data-k="${kind}" data-i="${index}" data-t="${target}"${
+                 mapping.enabled === false ? '' : ' checked'
+               }> <span>Atualizar esta aba</span></label>
+               <button class="btn ghost small md" type="button" data-k="${kind}" data-i="${index}" data-t="${target}">Remover aba</button>
+             </div>`
+          : ''
+      }`;
 
-    return `<div class="mapping-card${collapsed ? ' collapsed' : ''}${complete ? '' : ' incomplete'}" data-card="${kind}-${index}">
-      <button class="mapping-head" type="button" data-toggle="${kind}-${index}">
+    const roleBadge = mapping.roleLabel ? `<span class="chip small">${esc(mapping.roleLabel)}</span>` : '';
+    const offBadge = extra && mapping.enabled === false ? '<span class="chip small">não será atualizada</span>' : '';
+
+    return `<div class="mapping-card${collapsed ? ' collapsed' : ''}${complete ? '' : ' incomplete'}${
+      extra ? ' extra' : ''
+    }${extra && mapping.enabled === false ? ' off' : ''}" data-card="${cardId}">
+      <button class="mapping-head" type="button" data-toggle="${cardId}">
         <span class="mapping-title">${esc(name)}</span>
+        ${roleBadge}
+        ${offBadge}
         <span class="conf conf-${esc(confidence)}">${esc(confidenceLabel)}</span>
         ${complete ? '' : '<span class="conf conf-baixa">faltam colunas</span>'}
         <span class="chevron" aria-hidden="true"></span>
@@ -358,21 +395,42 @@
 
   function renderMappings() {
     const relation = engine.state.relation;
-    $('relationMapping').innerHTML = mappingCard('r', 0, `Relação GRCON · ${relation.name}`, relation.meta, relation.mapping, false);
+    $('relationMapping').innerHTML = mappingCard('r', 0, 0, `Relação GRCON · ${relation.name}`, relation.meta, relation.mapping, false);
 
     const lds = engine.state.lds.filter((l) => !l.error);
-    $('ldCount').textContent = `${lds.length} arquivo(s)`;
+    const sheetCount = lds.reduce((sum, ld) => sum + targetsOf(ld).filter((m) => m.enabled !== false).length, 0);
+    $('ldCount').textContent = `${lds.length} arquivo(s) · ${sheetCount} aba(s) a atualizar`;
     const autoCollapse = lds.length > COLLAPSE_THRESHOLD;
 
     $('ldMappings').innerHTML = lds
       .map((ld, i) => {
-        const key = `l-${i}`;
-        const complete = ld.mapping.documentCol && ld.mapping.grdtCol && ld.mapping.dateCol;
-        // Cartões incompletos ou de baixa confiança abrem sozinhos: são os que
-        // realmente exigem conferência humana.
-        const shouldOpen =
-          ui.allExpanded || ui.expandedCards.has(key) || !autoCollapse || !complete || ld.mapping.confidence !== 'alta';
-        return mappingCard('l', i, `LD ${i + 1} · ${ld.name}`, ld.meta, ld.mapping, !shouldOpen);
+        const targets = targetsOf(ld);
+        const cards = targets
+          .map((mapping, t) => {
+            const key = `l-${i}-${t}`;
+            const complete = t > 0
+              ? mapping.documentCol && (mapping.grdtCol || mapping.dateCol)
+              : mapping.documentCol && mapping.grdtCol && mapping.dateCol;
+            // Cartões incompletos ou de baixa confiança abrem sozinhos: são os
+            // que realmente exigem conferência humana. Aba adicional também
+            // abre na primeira vez — é novidade que merece ser conferida.
+            const shouldOpen =
+              ui.allExpanded ||
+              ui.expandedCards.has(key) ||
+              (!ui.collapsedCards.has(key) && (!autoCollapse || !complete || t > 0 || mapping.confidence !== 'alta'));
+            const title =
+              t === 0
+                ? `LD ${i + 1} · ${ld.name}`
+                : `LD ${i + 1} · ${ld.name} · aba "${mapping.sheetName}"`;
+            return mappingCard('l', i, t, title, ld.meta, mapping, !shouldOpen);
+          })
+          .join('');
+
+        return `<div class="ld-block" data-ld="${i}">${cards}
+          <div class="ld-block-actions">
+            <button class="btn ghost small ma" type="button" data-i="${i}">+ Adicionar aba desta LD</button>
+          </div>
+        </div>`;
       })
       .join('');
 
@@ -380,11 +438,14 @@
     invalidateConfirmation();
   }
 
-  function mappingOf(kind, index) {
-    return kind === 'r' ? engine.state.relation.mapping : engine.state.lds.filter((l) => !l.error)[index].mapping;
+  function fileOf(kind, index) {
+    return kind === 'r' ? engine.state.relation : engine.state.lds.filter((l) => !l.error)[index];
+  }
+  function mappingOf(kind, index, target) {
+    return targetsOf(fileOf(kind, index))[target || 0];
   }
   function metaOf(kind, index) {
-    return kind === 'r' ? engine.state.relation.meta : engine.state.lds.filter((l) => !l.error)[index].meta;
+    return fileOf(kind, index).meta;
   }
 
   function invalidateConfirmation() {
@@ -392,43 +453,74 @@
     $('analyzeBtn').disabled = true;
   }
 
+  /**
+   * Amostra a aba no worker e reescreve o alvo com a detecção resultante.
+   * É o mesmo caminho tanto para trocar a aba de um alvo quanto para criar um
+   * alvo novo (a aba de CV, por exemplo).
+   */
+  async function applySheetToTarget(file, mapping, sheetPath, profile) {
+    const scan = await engine.inspectSheet(file.fileId, sheetPath, profile);
+    const sheet = file.meta.sheets.find((s) => s.path === sheetPath);
+    sheet.grid = scan.grid;
+    sheet.maxRow = scan.maxRow;
+    sheet.maxCol = scan.maxCol;
+    sheet.scanned = true;
+    if (scan.role !== undefined) {
+      sheet.role = scan.role;
+      sheet.roleLabel = scan.roleLabel;
+    }
+    Object.assign(mapping, {
+      sheetPath,
+      sheetName: sheet.name,
+      role: sheet.role || null,
+      roleLabel: sheet.roleLabel || '',
+      hidden: !!sheet.hidden,
+      headerRow: scan.detected.headerRow,
+      documentCol: scan.detected.documentCol,
+      grdtCol: scan.detected.grdtCol,
+      dateCol: scan.detected.dateCol,
+      revisionCol: scan.detected.revisionCol,
+      confidence: scan.detected.confidence,
+      fieldScores: scan.detected.fieldScores,
+    });
+    return mapping;
+  }
+
   function wireMappingEvents() {
     document.querySelectorAll('[data-toggle]').forEach((button) => {
       button.onclick = () => {
         const card = button.closest('.mapping-card');
         card.classList.toggle('collapsed');
-        const key = button.dataset.toggle.replace('-', '-');
-        if (card.classList.contains('collapsed')) ui.expandedCards.delete(key);
-        else ui.expandedCards.add(key);
+        const key = button.dataset.toggle;
+        if (card.classList.contains('collapsed')) {
+          ui.expandedCards.delete(key);
+          ui.collapsedCards.add(key);
+        } else {
+          ui.collapsedCards.delete(key);
+          ui.expandedCards.add(key);
+        }
       };
     });
 
     document.querySelectorAll('.ms').forEach((select) => {
       select.onchange = async () => {
-        const { k, i } = select.dataset;
-        const mapping = mappingOf(k, +i);
-        const meta = metaOf(k, +i);
-        const fileId = k === 'r' ? engine.state.relation.fileId : engine.state.lds.filter((l) => !l.error)[+i].fileId;
+        const { k, i, t } = select.dataset;
+        const file = fileOf(k, +i);
+        const mapping = mappingOf(k, +i, +t);
+
+        // Duas abas iguais no mesmo arquivo gravariam duas vezes na mesma
+        // planilha: a troca é recusada e o cartão volta ao estado anterior.
+        const clash = targetsOf(file).some((other) => other !== mapping && other.sheetPath === select.value);
+        if (clash) {
+          toast('Esta aba já está mapeada neste arquivo.');
+          renderMappings();
+          return;
+        }
 
         setBusy(true);
         try {
           // A aba pode ainda não ter sido amostrada: pede ao worker.
-          const scan = await engine.inspectSheet(fileId, select.value, k === 'r' ? 'relation' : 'ld');
-          const sheet = meta.sheets.find((s) => s.path === select.value);
-          sheet.grid = scan.grid;
-          sheet.maxRow = scan.maxRow;
-          sheet.maxCol = scan.maxCol;
-          sheet.scanned = true;
-          Object.assign(mapping, {
-            sheetPath: select.value,
-            sheetName: sheet.name,
-            headerRow: scan.detected.headerRow,
-            documentCol: scan.detected.documentCol,
-            grdtCol: scan.detected.grdtCol,
-            dateCol: scan.detected.dateCol,
-            revisionCol: scan.detected.revisionCol,
-            confidence: scan.detected.confidence,
-          });
+          await applySheetToTarget(file, mapping, select.value, k === 'r' ? 'relation' : 'ld');
           renderMappings();
         } catch (error) {
           toast('Falha ao ler a aba: ' + error.message);
@@ -440,19 +532,63 @@
 
     document.querySelectorAll('.mr').forEach((select) => {
       select.onchange = () => {
-        mappingOf(select.dataset.k, +select.dataset.i).headerRow = +select.value;
+        mappingOf(select.dataset.k, +select.dataset.i, +select.dataset.t).headerRow = +select.value;
         renderMappings();
       };
     });
 
     document.querySelectorAll('.mc').forEach((select) => {
       select.onchange = () => {
-        const mapping = mappingOf(select.dataset.k, +select.dataset.i);
-        mapping[select.dataset.f] = select.value ? +select.value : null;
+        const { k, i, t, f } = select.dataset;
+        const mapping = mappingOf(k, +i, +t);
+        mapping[f] = select.value ? +select.value : null;
         invalidateConfirmation();
         const card = select.closest('.mapping-card');
-        const complete = mapping.documentCol && mapping.grdtCol && mapping.dateCol;
+        const complete = +t > 0
+          ? mapping.documentCol && (mapping.grdtCol || mapping.dateCol)
+          : mapping.documentCol && mapping.grdtCol && mapping.dateCol;
         card.classList.toggle('incomplete', !complete);
+      };
+    });
+
+    // Liga/desliga uma aba adicional sem perder o mapeamento já conferido.
+    document.querySelectorAll('.mt').forEach((box) => {
+      box.onchange = () => {
+        mappingOf(box.dataset.k, +box.dataset.i, +box.dataset.t).enabled = box.checked;
+        renderMappings();
+      };
+    });
+
+    document.querySelectorAll('.md').forEach((button) => {
+      button.onclick = () => {
+        const { i, t } = button.dataset;
+        const file = fileOf('l', +i);
+        const [removed] = file.mappings.splice(+t, 1);
+        renderMappings();
+        toast(`Aba "${removed.sheetName}" removida da atualização.`);
+      };
+    });
+
+    document.querySelectorAll('.ma').forEach((button) => {
+      button.onclick = async () => {
+        const file = fileOf('l', +button.dataset.i);
+        const used = new Set(targetsOf(file).map((mapping) => mapping.sheetPath));
+        const free = file.meta.sheets.find((sheet) => !used.has(sheet.path));
+        if (!free) return toast('Todas as abas deste arquivo já estão mapeadas.');
+
+        setBusy(true);
+        try {
+          const mapping = { enabled: true, primary: false };
+          await applySheetToTarget(file, mapping, free.path, 'ld');
+          file.mappings.push(mapping);
+          ui.expandedCards.add(`l-${button.dataset.i}-${file.mappings.length - 1}`);
+          renderMappings();
+          toast(`Aba "${mapping.sheetName}" adicionada. Confira as colunas.`);
+        } catch (error) {
+          toast('Falha ao ler a aba: ' + error.message);
+        } finally {
+          setBusy(false);
+        }
       };
     });
   }
@@ -727,7 +863,13 @@
       exportadoEm: new Date().toISOString(),
       modo: engine.mode,
       relacao: state.relation ? { arquivo: state.relation.name, hash: state.relation.hash, mapeamento: state.relation.mapping } : null,
-      lds: state.lds.map((ld) => ({ arquivo: ld.name, hash: ld.hash, mapeamento: ld.mapping, erro: ld.error || null })),
+      lds: state.lds.map((ld) => ({
+        arquivo: ld.name,
+        hash: ld.hash,
+        mapeamento: ld.mapping,
+        abas: ld.error ? [] : targetsOf(ld).filter((m) => m.enabled !== false),
+        erro: ld.error || null,
+      })),
       estatisticas: state.analysis ? state.analysis.stats : null,
       tempos: state.timings,
       eventos: ui.logEntries,
@@ -818,6 +960,7 @@
 
   $('toMappingBtn').onclick = () => {
     ui.expandedCards.clear();
+    ui.collapsedCards.clear();
     renderMappings();
     goToStep(2);
   };
@@ -825,29 +968,59 @@
   $('replicateBtn').onclick = () => {
     const lds = engine.state.lds.filter((l) => !l.error);
     if (lds.length < 2) return toast('É preciso ter mais de uma LD carregada.');
-    const source = lds[0].mapping;
+    const sources = targetsOf(lds[0]);
     let applied = 0;
+    let missing = 0;
+
     for (const ld of lds.slice(1)) {
-      // Só replica onde a aba de destino tem as mesmas colunas disponíveis.
-      const sheet = ld.meta.sheets.find((s) => s.name === source.sheetName) || sheetOf(ld.meta, ld.mapping);
-      Object.assign(ld.mapping, {
-        sheetPath: sheet.path,
-        sheetName: sheet.name,
-        headerRow: source.headerRow,
-        documentCol: source.documentCol,
-        grdtCol: source.grdtCol,
-        dateCol: source.dateCol,
-        revisionCol: source.revisionCol,
-      });
+      const replicated = [];
+      for (const source of sources) {
+        // Só replica onde a aba de destino existe com o mesmo nome. A primeira
+        // cai na aba já escolhida quando o nome não bate — as demais (CV, por
+        // exemplo) são simplesmente puladas nas LDs que não as têm.
+        const sheet =
+          ld.meta.sheets.find((s) => s.name === source.sheetName) ||
+          (replicated.length === 0 ? sheetOf(ld.meta, ld.mapping) : null);
+        if (!sheet || replicated.some((m) => m.sheetPath === sheet.path)) {
+          missing++;
+          continue;
+        }
+        replicated.push({
+          ...source,
+          sheetPath: sheet.path,
+          sheetName: sheet.name,
+          role: sheet.role || null,
+          roleLabel: sheet.roleLabel || '',
+          hidden: !!sheet.hidden,
+          primary: replicated.length === 0,
+        });
+      }
+      if (!replicated.length) continue;
+      ld.mappings = replicated;
+      ld.mapping = replicated[0];
       applied++;
     }
+
     renderMappings();
-    toast(`Mapeamento replicado em ${applied} LD(s). Confira antes de confirmar.`);
+    toast(
+      `Mapeamento replicado em ${applied} LD(s)${missing ? `; ${missing} aba(s) sem correspondência foram puladas` : ''}. ` +
+        'Confira antes de confirmar.'
+    );
   };
 
   $('toggleCardsBtn').onclick = () => {
     ui.allExpanded = !ui.allExpanded;
     $('toggleCardsBtn').textContent = ui.allExpanded ? 'Recolher todas' : 'Expandir todas';
+    if (ui.allExpanded) {
+      ui.collapsedCards.clear();
+    } else {
+      // "Recolher todas" recolhe mesmo — inclusive os cartões que abririam
+      // sozinhos por serem abas adicionais ou de detecção incerta.
+      ui.expandedCards.clear();
+      engine.state.lds
+        .filter((l) => !l.error)
+        .forEach((ld, i) => targetsOf(ld).forEach((_, t) => ui.collapsedCards.add(`l-${i}-${t}`)));
+    }
     renderMappings();
   };
 

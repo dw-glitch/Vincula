@@ -1,5 +1,55 @@
 # Changelog
 
+## 2.1.0
+
+A LD deixa de ser "uma aba". O Vincula agora identifica **todas as abas atualizáveis** de cada LD
+— a lista de documentos e a aba de **CV (currículos)** — e atualiza as duas na mesma passada,
+dentro do mesmo arquivo gerado.
+
+### Aba de CV (currículos) reconhecida e atualizada
+
+- A aba é identificada pelo nome, sem depender de grafia exata: `CV`, `CVs`, `CV - Currículos`,
+  `Currículos`, `CURRICULO`, `Curriculum Vitae` — caixa, acento e pontuação não importam.
+- Nessa aba, a coluna do documento também é reconhecida pelo vocabulário de currículo (`CV`,
+  `Código do CV`, `Currículo`), que continua **não** valendo na aba de documentos — assim uma
+  coluna auxiliar chamada "CV" na lista de documentos não concorre com "DOCUMENTO".
+- Regras idênticas às da aba de documentos: GRDT e Data Efetiva de Emissão só são gravadas
+  quando a relação traz valor, data inválida preserva a data da LD, data como texto vira data
+  real do Excel, e a Revisão continua opcional.
+- A aba de CV costuma não repetir todas as colunas da aba de documentos. Quando falta uma delas,
+  o campo simplesmente não é prometido na prévia nem gravado — o motivo do registro diz qual
+  coluna não existe naquela aba.
+
+### Qualquer LD com mais de uma aba de documentos
+
+- O reconhecimento não é exclusivo do CV: toda aba cujo cabeçalho resolve Documento, GRDT e Data
+  entra como alvo. Abas ocultas entram na lista, porém **desmarcadas** — gravar no que não se vê
+  precisa ser decisão do usuário.
+- Etapa 2 passou a ter um cartão por aba: a aba principal e, recuadas sob ela, as adicionais,
+  cada uma com sua linha de cabeçalho e suas colunas, uma caixa *Atualizar esta aba* e o botão
+  *Remover aba*. O botão *+ Adicionar aba desta LD* inclui manualmente uma aba que a detecção
+  não propôs.
+- *Replicar 1ª LD nas demais* passou a replicar a lista inteira de abas, casando pelo nome da
+  aba; as LDs que não têm determinada aba simplesmente a pulam.
+- Trocar a aba de um cartão para uma já mapeada no mesmo arquivo é recusado: duas gravações na
+  mesma planilha nunca acontecem por engano.
+
+### Gravação e auditoria
+
+- Um arquivo, um commit: as abas são emendadas e conferidas uma a uma e o pacote só é fechado
+  quando **todas** passam na auditoria de integridade. Se qualquer aba reprovar, nada é gravado —
+  o arquivo gerado nunca sai com uma aba nova e outra revertida.
+- Cada registro do relatório já trazia a coluna *Aba*; agora ela distingue de fato de onde veio a
+  linha, e o motivo cita arquivo, aba e linha. O Resumo ganhou *Quantidade de abas atualizadas* e
+  a aba *Arquivos Gerados*, a coluna *Abas atualizadas*.
+- Uma aba desmarcada nunca recebe escrita: o item correspondente é registrado como bloqueado,
+  jamais redirecionado para outra aba (a mesma linha em outra aba é outro documento).
+
+Testes: 247/247 (61 novos, cobrindo classificação de abas, detecção na aba de CV, indexação por
+aba, prévia, gravação nas duas abas do mesmo arquivo, aba desmarcada e preservação byte a byte
+das abas fora do mapeamento). O teste de volume passou a incluir uma aba de CV por LD:
+21.000 documentos em 200 abas, integridade aprovada em 100/100 arquivos.
+
 ## 2.0.7
 
 Vincula agora também atualiza a Revisão do documento, lendo a mesma coluna de histórico já

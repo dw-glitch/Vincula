@@ -134,6 +134,55 @@
     forbidden: ['VENCIMENTO', 'PREVISTA', 'RECEBIMENTO', 'ENVIO'],
   };
 
+  /**
+   * A aba de CV (currículos) da LD lista os mesmos documentos controlados por
+   * GRDT, mas rotula a coluna do documento com o vocabulário de currículo
+   * ("CV", "Currículo", "Código do CV"). O campo herda tudo do documento comum
+   * e apenas acrescenta essas grafias — mantê-lo separado evita que uma coluna
+   * auxiliar chamada "CV" na aba de documentos concorra com "DOCUMENTO".
+   */
+  FIELDS.documentCv = {
+    label: 'Documento / CV',
+    exact: [
+      ...FIELDS.document.exact,
+      'CV',
+      'CVS',
+      'CURRICULO',
+      'CURRICULOS',
+      'CURRICULUM',
+      'CURRICULUM VITAE',
+      'CODIGO CV',
+      'CODIGO DO CV',
+      'COD CV',
+      'NUMERO CV',
+      'NUMERO DO CV',
+      'N CV',
+      'DOCUMENTO CV',
+      'CV DOCUMENTO',
+      'CODIGO CURRICULO',
+      'CODIGO DO CURRICULO',
+      'DOCUMENTO CURRICULO',
+    ],
+    required: [
+      [
+        'DOCUMENTO',
+        'DOCUMENTOS',
+        'DOC',
+        'CODIGO',
+        'COD',
+        'CV',
+        'CVS',
+        'CURRICULO',
+        'CURRICULOS',
+        'CURRICULUM',
+        'CURRICULA',
+        'VITAE',
+      ],
+    ],
+    optional: ['CODIGO', 'COD', 'NUMERO', 'N', 'NOME', 'CV', 'CURRICULO', 'CURRICULOS', 'DOCUMENTO'],
+    forbidden: FIELDS.document.forbidden,
+  };
+
   // Índices pré-normalizados: comparação de cabeçalho é caminho quente.
   for (const field of Object.values(FIELDS)) {
     field.exactSet = new Set(field.exact.map(normalizeHeader));
@@ -193,7 +242,55 @@
   const PROFILES = {
     relation: { document: 'document', grdt: 'grdt', date: 'relationDate', revision: 'revision' },
     ld: { document: 'document', grdt: 'grdt', date: 'dateEffective', revision: 'revision' },
+    // Mesmas regras da LD; só o reconhecimento da coluna de documento é mais
+    // largo, para cobrir o vocabulário da aba de currículos.
+    ldCv: { document: 'documentCv', grdt: 'grdt', date: 'dateEffective', revision: 'revision' },
   };
+
+  /**
+   * Papéis de aba reconhecidos pelo nome. A LD costuma trazer a lista de
+   * documentos em uma aba e os currículos (CV) em outra — as duas precisam ser
+   * atualizadas, então o nome da aba é usado apenas para *classificar*, nunca
+   * para decidir sozinho: a detecção de cabeçalho continua sendo a palavra
+   * final sobre o que é atualizável.
+   */
+  const SHEET_ROLES = {
+    cv: {
+      label: 'CV (currículos)',
+      short: 'CV',
+      tokens: ['CV', 'CVS', 'CURRICULO', 'CURRICULOS', 'CURRICULUM', 'CURRICULUMS', 'CURRICULA', 'VITAE'],
+    },
+    documentos: {
+      label: 'Documentos',
+      short: 'Documentos',
+      tokens: ['DOCUMENTO', 'DOCUMENTOS', 'LD', 'LISTA', 'DADOS'],
+    },
+  };
+
+  for (const role of Object.values(SHEET_ROLES)) role.tokenSet = new Set(role.tokens);
+
+  /**
+   * Classifica uma aba pelo nome: 'cv', 'documentos' ou null (indefinida).
+   * "CV", "CVs", "CV - Currículos", "Currículos" e "Curriculum Vitae" caem
+   * todas em 'cv'; caixa, acento e pontuação não importam.
+   */
+  function classifySheet(name) {
+    const tokens = headerTokens(name);
+    if (!tokens.length) return null;
+    if (tokens.some((token) => SHEET_ROLES.cv.tokenSet.has(token))) return 'cv';
+    if (tokens.some((token) => SHEET_ROLES.documentos.tokenSet.has(token))) return 'documentos';
+    return null;
+  }
+
+  /** Rótulo curto do papel, para a interface e a auditoria. */
+  function sheetRoleLabel(role) {
+    return SHEET_ROLES[role] ? SHEET_ROLES[role].label : '';
+  }
+
+  /** Perfil de detecção adequado ao papel da aba dentro do perfil do arquivo. */
+  function profileForSheet(profile, role) {
+    return profile === 'ld' && role === 'cv' ? 'ldCv' : profile || 'ld';
+  }
 
   // Revisão é opcional: nem toda LD/Relação tem essa coluna, então ela entra
   // na varredura (ajuda a achar a linha de cabeçalho certa quando presente)
@@ -258,8 +355,13 @@
 
   V.headers = {
     FIELDS,
+    SHEET_ROLES,
+    PROFILES,
     scoreHeader,
     detect,
+    classifySheet,
+    sheetRoleLabel,
+    profileForSheet,
     isPostingDateHeader,
     isEffectiveDateHeader,
     isRelationDateHeader,

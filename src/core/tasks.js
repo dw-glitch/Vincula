@@ -27,6 +27,13 @@
   const HEADER_SCAN_COLS = 200;
   const MAX_GRID_CELLS = 8000;
 
+  // Uma LD pode trazer mais de uma aba atualizável — tipicamente a lista de
+  // documentos e a aba de CV (currículos). Todas as abas da LD são amostradas
+  // para que nenhuma fique de fora; o teto existe só para conter o custo em
+  // pastas de trabalho com dezenas de abas auxiliares.
+  const MAX_LD_SHEETS_SCANNED = 24;
+  const MAX_LD_TARGETS = 8;
+
   // A amostra completa fica no worker (é o que alimenta a detecção). Para a
   // página vai só o recorte que os seletores de mapeamento precisam — com 100
   // LDs abertas, enviar a amostra inteira de cada arquivo custaria dezenas de
@@ -99,6 +106,62 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * Alvos de atualização
+   *
+   * Um alvo é uma aba mapeada: aba + linha de cabeçalho + colunas. A Relação
+   * GRCON tem sempre um único alvo; a LD pode ter mais de um — a lista de
+   * documentos e a aba de CV (currículos) são o caso corrente, e as duas
+   * precisam ser atualizadas na mesma passada.
+   * ------------------------------------------------------------------ */
+
+  function toMapping(info, detected, extra) {
+    return {
+      sheetName: info.name,
+      sheetPath: info.path,
+      headerRow: detected ? detected.headerRow : 1,
+      documentCol: detected ? detected.documentCol : null,
+      grdtCol: detected ? detected.grdtCol : null,
+      dateCol: detected ? detected.dateCol : null,
+      revisionCol: detected ? detected.revisionCol : null,
+      confidence: detected ? detected.confidence : 'baixa',
+      fieldScores: detected ? detected.fieldScores : {},
+      role: info.role || null,
+      roleLabel: V.headers.sheetRoleLabel(info.role),
+      hidden: !!info.hidden,
+      ...extra,
+    };
+  }
+
+  /**
+   * Uma aba secundária só entra sozinha como alvo quando o cabeçalho resolve
+   * os três campos obrigatórios (documento, GRDT e data). A aba de CV é a
+   * única exceção controlada: identificada pelo nome, basta ter a coluna de
+   * documento e ao menos um campo gravável para ser proposta — é comum que a
+   * lista de currículos não repita todas as colunas da aba de documentos.
+   */
+  function isUpdatableTarget(detected, role) {
+    if (!detected || !detected.documentCol) return false;
+    if (detected.matchedFields === 3) return true;
+    return role === 'cv' && !!(detected.grdtCol || detected.dateCol);
+  }
+
+  function buildTargets(sheets, profile, primaryInfo, primaryDetected) {
+    const primary = toMapping(primaryInfo, primaryDetected, { primary: true, enabled: true });
+    if (profile !== 'ld') return [primary];
+
+    const targets = [primary];
+    for (const info of sheets) {
+      if (info.path === primary.sheetPath || !info.detected) continue;
+      if (!isUpdatableTarget(info.detected, info.role)) continue;
+      if (targets.length >= MAX_LD_TARGETS) break;
+      // Aba oculta entra na lista, porém desmarcada: gravar em algo que o
+      // usuário não vê precisa ser uma decisão dele, nunca um efeito colateral.
+      targets.push(toMapping(info, info.detected, { primary: false, enabled: !info.hidden }));
+    }
+    return targets;
+  }
+
+  /* ------------------------------------------------------------------ *
    * open — abre o arquivo, amostra os cabeçalhos e sugere o mapeamento
    * ------------------------------------------------------------------ */
 
@@ -118,17 +181,35 @@
     const sheets = [];
     let suggestion = null;
     let suggestionSheet = null;
+    let scannedCount = 0;
 
     for (const sheet of wb.sheets) {
-      const info = { name: sheet.name, path: sheet.path, hidden: sheet.hidden, scanned: false, maxRow: 0, maxCol: 0, grid: null };
+      const role = V.headers.classifySheet(sheet.name);
+      const info = {
+        name: sheet.name,
+        path: sheet.path,
+        hidden: sheet.hidden,
+        role,
+        roleLabel: V.headers.sheetRoleLabel(role),
+        scanned: false,
+        maxRow: 0,
+        maxCol: 0,
+        grid: null,
+        detected: null,
+      };
       sheets.push(info);
 
-      // Interrompe a decodificação assim que uma aba resolve os três campos.
-      if (suggestion && suggestion.confidence === 'alta') continue;
+      // Na LD, toda aba é amostrada: a lista de documentos e a de CV
+      // (currículos) são atualizadas juntas, e só a varredura revela quais
+      // abas têm cabeçalho utilizável. Na Relação, uma única aba é usada —
+      // então a decodificação para assim que uma resolve os três campos.
+      if (profile !== 'ld' && suggestion && suggestion.confidence === 'alta') continue;
+      if (scannedCount >= MAX_LD_SHEETS_SCANNED) continue;
 
       const xml = await X.readSheetXml(wb, sheet);
       const dimension = readDimension(xml);
       const grid = buildGrid(wb, xml);
+      scannedCount++;
       info.scanned = true;
       info.grid = grid;
       info.maxRow = Math.max(dimension?.maxRow || 0, grid.maxRow);
@@ -136,12 +217,15 @@
       sheet.maxRow = info.maxRow;
       sheet.maxCol = info.maxCol;
 
-      const detected = detectFromGrid(grid, profile);
+      const detected = detectFromGrid(grid, V.headers.profileForSheet(profile, role));
+      info.detected = detected;
       if (!suggestion || detected.score > suggestion.score) {
         suggestion = detected;
         suggestionSheet = info;
       }
     }
+
+    const mappings = buildTargets(sheets, profile, suggestionSheet || sheets[0], suggestion);
 
     const meta = {
       fileId,
@@ -150,17 +234,8 @@
       profile,
       date1904: wb.date1904,
       sheets,
-      mapping: {
-        sheetName: suggestionSheet ? suggestionSheet.name : sheets[0].name,
-        sheetPath: suggestionSheet ? suggestionSheet.path : sheets[0].path,
-        headerRow: suggestion ? suggestion.headerRow : 1,
-        documentCol: suggestion ? suggestion.documentCol : null,
-        grdtCol: suggestion ? suggestion.grdtCol : null,
-        dateCol: suggestion ? suggestion.dateCol : null,
-        revisionCol: suggestion ? suggestion.revisionCol : null,
-        confidence: suggestion ? suggestion.confidence : 'baixa',
-        fieldScores: suggestion ? suggestion.fieldScores : {},
-      },
+      mapping: mappings[0],
+      mappings,
     };
 
     const entry = { name, hash, profile, wb, meta, indexes: new Map() };
@@ -174,14 +249,21 @@
     const entry = entryOf(fileId);
     const info = entry.meta.sheets.find((s) => s.path === sheetPath);
     if (!info) throw new Error('Aba não encontrada: ' + sheetPath);
+    // A aba de CV é reconhecida pelo nome e detectada com o perfil próprio.
+    const sheetProfile = V.headers.profileForSheet(profile || entry.profile, info.role);
+
     if (info.scanned) {
+      const detected = detectFromGrid(info.grid, sheetProfile);
+      info.detected = detected;
       return {
         fileId,
         sheetPath,
+        role: info.role,
+        roleLabel: info.roleLabel,
         grid: toPayloadGrid(info.grid),
         maxRow: info.maxRow,
         maxCol: info.maxCol,
-        detected: detectFromGrid(info.grid, profile || entry.profile),
+        detected,
       };
     }
 
@@ -193,13 +275,17 @@
     info.grid = grid;
     info.maxRow = Math.max(dimension?.maxRow || 0, grid.maxRow);
     info.maxCol = Math.max(dimension?.maxCol || 0, grid.maxCol);
+    const detected = detectFromGrid(grid, sheetProfile);
+    info.detected = detected;
     return {
       fileId,
       sheetPath,
+      role: info.role,
+      roleLabel: info.roleLabel,
       grid: toPayloadGrid(grid),
       maxRow: info.maxRow,
       maxCol: info.maxCol,
-      detected: detectFromGrid(grid, profile || entry.profile),
+      detected,
     };
   }
 
@@ -294,13 +380,159 @@
     return { ...result, fromCache: false };
   }
 
-  async function apply({ fileId, mapping, plan, options }, report) {
+  /**
+   * Abas que esta chamada pode gravar: todas as mapeadas e habilitadas, sem
+   * repetição — a mesma aba duas vezes gravaria duas vezes na mesma planilha.
+   */
+  function resolveTargets({ mapping, mappings }) {
+    const list = [];
+    const seen = new Set();
+    for (const item of mappings && mappings.length ? mappings : mapping ? [mapping] : []) {
+      if (!item || item.enabled === false || seen.has(item.sheetPath)) continue;
+      seen.add(item.sheetPath);
+      list.push(item);
+    }
+    if (!list.length) throw new Error('Nenhuma aba habilitada para atualização.');
+    return list;
+  }
+
+  /**
+   * Distribui os itens do plano entre as abas. Um item que aponta para uma aba
+   * que não está entre os alvos habilitados é descartado, nunca redirecionado:
+   * a mesma linha em outra aba é outro documento.
+   */
+  function groupPlanBySheet(plan, targets) {
+    const groups = new Map(targets.map((target) => [target.sheetPath, []]));
+    const discarded = [];
+    for (const item of plan || []) {
+      if (!item.sheetPath) {
+        groups.get(targets[0].sheetPath).push(item);
+        continue;
+      }
+      const bucket = groups.get(item.sheetPath);
+      if (bucket) bucket.push(item);
+      else discarded.push(item);
+    }
+    return { groups, discarded };
+  }
+
+  function mergeGuards(sheetResults) {
+    const merged = { protected: false, merges: 0, validations: 0, conditional: 0, autoFilter: false };
+    for (const result of sheetResults) {
+      const guards = result.guards;
+      if (!guards) continue;
+      merged.protected = merged.protected || guards.protected;
+      merged.merges += guards.merges || 0;
+      merged.validations += guards.validations || 0;
+      merged.conditional += guards.conditional || 0;
+      merged.autoFilter = merged.autoFilter || guards.autoFilter;
+    }
+    return merged;
+  }
+
+  /**
+   * Atualiza todas as abas mapeadas do arquivo e fecha o pacote uma única vez.
+   * Se qualquer aba reprovar na auditoria de integridade, nada é gravado: o
+   * arquivo gerado nunca mistura uma aba nova com outra revertida.
+   */
+  async function apply({ fileId, mapping, mappings, plan, options }, report) {
     const entry = entryOf(fileId);
+    const targets = resolveTargets({ mapping, mappings });
+    const { groups, discarded } = groupPlanBySheet(plan, targets);
     report && report({ phase: 'atualizacao', name: entry.name });
-    return withModel(entry, mapping, async (sheet, model) => {
-      const result = await V.applier.applyPlan(entry.wb, sheet, model, mapping, plan || [], options || {});
-      return { fileId, name: entry.name, sheetName: sheet.name, ...result };
-    });
+
+    const sheetResults = [];
+    let failure = null;
+
+    for (const target of targets) {
+      const items = groups.get(target.sheetPath) || [];
+      // Aba sem nada a gravar não é reaberta: poupa a leitura do XML inteiro.
+      if (!items.length) continue;
+      const result = await withModel(entry, target, (sheet, model) =>
+        V.applier.applySheetPlan(entry.wb, sheet, model, target, items, options || {})
+      );
+      sheetResults.push(result);
+      if (!result.ok) {
+        failure = result;
+        break;
+      }
+    }
+
+    const results = sheetResults.flatMap((result) => result.results || []);
+    const occurrences = sheetResults.flatMap((result) => result.occurrences || []);
+    for (const item of discarded) {
+      results.push({
+        recordId: item.recordId,
+        outcome: V.applier.OUTCOME.BLOQUEADO,
+        appliedFields: [],
+        blockedFields: [],
+        reason: `Aba "${item.sheetName || item.sheetPath}" não está entre as abas habilitadas para atualização.`,
+      });
+    }
+
+    const sheets = sheetResults.map((result) => ({
+      sheetName: result.sheetName,
+      sheetPath: result.sheetPath,
+      ok: result.ok,
+      snapshotHash: result.snapshotHash,
+      counters: result.counters || null,
+      integrity: result.integrity || null,
+      error: result.error || null,
+    }));
+
+    if (failure) {
+      // Rollback total: as emendas de todas as abas são descartadas juntas.
+      V.applier.rollback(entry.wb);
+      return {
+        ok: false,
+        fileId,
+        name: entry.name,
+        sheetName: failure.sheetName,
+        sheets,
+        error: failure.error,
+        snapshotHash: sheetResults[0] ? sheetResults[0].snapshotHash : null,
+        results,
+        occurrences,
+        rolledBack: true,
+      };
+    }
+
+    const counters = sheetResults.reduce(
+      (total, result) => {
+        const c = result.counters || {};
+        total.grdtWrites += c.grdtWrites || 0;
+        total.dateWrites += c.dateWrites || 0;
+        total.revisionWrites += c.revisionWrites || 0;
+        total.authorizedCells += c.authorizedCells || 0;
+        return total;
+      },
+      { grdtWrites: 0, dateWrites: 0, revisionWrites: 0, authorizedCells: 0 }
+    );
+
+    const verified = sheetResults.length > 0 && sheetResults.every((result) => result.integrity && result.integrity.verified);
+    const integrity = {
+      verified,
+      ok: sheetResults.every((result) => !result.integrity || result.integrity.ok),
+      comparedCells: sheetResults.reduce((sum, result) => sum + ((result.integrity && result.integrity.comparedCells) || 0), 0),
+      violations: sheetResults.flatMap((result) => (result.integrity && result.integrity.violations) || []),
+    };
+
+    const closed = await V.applier.finalize(entry.wb, options || {});
+    return {
+      ok: true,
+      fileId,
+      name: entry.name,
+      sheetName: sheetResults.length ? sheetResults[0].sheetName : targets[0].sheetName,
+      sheetNames: sheetResults.map((result) => result.sheetName),
+      sheets,
+      snapshotHash: sheetResults.length ? sheetResults[0].snapshotHash : null,
+      results,
+      occurrences,
+      guards: mergeGuards(sheetResults),
+      integrity,
+      counters,
+      ...closed,
+    };
   }
 
   function release({ fileId }) {

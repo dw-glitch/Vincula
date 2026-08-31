@@ -261,6 +261,18 @@ button, input, select { font: inherit; }
 .mapping-card { border: 1px solid var(--line); border-radius: 15px; overflow: hidden; background: #fff; }
 .mapping-card.incomplete { border-color: #efc899; }
 
+/* Abas adicionais da mesma LD (documentos + CV, por exemplo) ficam recuadas
+   sob o cartão principal, para se lerem como parte do mesmo arquivo. */
+.ld-block { display: grid; gap: 8px; }
+.ld-block + .ld-block { margin-top: 4px; }
+.mapping-card.extra { margin-left: 22px; border-style: dashed; }
+.mapping-card.extra.off { opacity: .62; }
+.ld-block-actions { margin-left: 22px; }
+
+.sheet-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.sheet-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: var(--b9); cursor: pointer; }
+.sheet-toggle input { transform: scale(1.1); }
+
 .mapping-head {
   width: 100%; border: 0; background: #fbfdff;
   display: flex; align-items: center; gap: 10px;
@@ -415,6 +427,7 @@ td.empty { text-align: center; color: var(--mut); padding: 28px; }
   .page-shell { width: min(100% - 18px, 1480px); margin-top: 10px; }
   .workspace { padding: 20px 17px; }
   .mapping-grid { grid-template-columns: 1fr; }
+  .mapping-card.extra, .ld-block-actions { margin-left: 10px; }
   .summary-grid { grid-template-columns: repeat(2, 1fr); }
   .stage-bars { grid-template-columns: 1fr; }
   .metrics { grid-template-columns: repeat(2, 1fr); }
