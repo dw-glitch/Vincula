@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.1.1
+
+### A Data Efetiva de Emissão volta a ser só data
+
+A data continuava sendo gravada corretamente — serial do Excel à meia-noite, nunca texto —, mas
+quando a coluna da LD já vinha formatada **com hora** (`dd/mm/yyyy hh:mm:ss`, ou o formato
+embutido nº 22 do Excel), esse formato era preservado e o Excel exibia a data com o resto
+pendurado: `01/09/2026 00:00:00`.
+
+- A gravação passou a distinguir **formato de data pura** de **formato de data com hora**. Só o
+  primeiro é preservado; o segundo é substituído por `dd/mm/yyyy`, mantendo fonte, preenchimento,
+  bordas e alinhamento da célula original.
+- Uma coluna que já estava em formato de data pura — inclusive `dd-mmm-yy` ou com prefixo de
+  locale, como `[$-416]dd/mm/yyyy` — continua exatamente como o usuário a formatou.
+- A leitura não mudou: uma célula formatada com data+hora continua sendo reconhecida como data,
+  e a hora segue sendo descartada na conversão.
+
+### Rollback devolve `styles.xml` ao estado de leitura
+
+Quando uma gravação era descartada, os estilos e o formato de data criados no caminho ficavam
+registrados em memória. Uma segunda tentativa no mesmo arquivo podia então apontar para um
+estilo que o rollback já havia deixado de fora do pacote. Agora o rollback desfaz também esses
+acréscimos.
+
 ## 2.1.0
 
 A LD deixa de ser "uma aba". O Vincula agora identifica **todas as abas atualizáveis** de cada LD

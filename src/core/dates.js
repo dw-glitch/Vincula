@@ -20,17 +20,52 @@
   ]);
 
   /**
+   * Subconjunto dos embutidos que carrega hora ("m/d/yy h:mm", "h:mm:ss", os
+   * formatos asiáticos de hora). Exibir uma data com um deles faz o Excel
+   * mostrar "01/09/2026 00:00:00" mesmo com o serial gravado à meia-noite.
+   */
+  const BUILTIN_TIME_FORMATS = new Set([18, 19, 20, 21, 22, 32, 33, 34, 35, 45, 46, 47, 55, 56]);
+
+  /** Retira literais entre aspas, escapes e blocos [..] — sobram os marcadores. */
+  function stripFormatLiterals(code) {
+    return String(code).replace(/"[^"]*"|\\.|\[[^\]]*\]/g, '');
+  }
+
+  /**
    * Um formato é de data quando, retirados literais e escapes, ainda restam
    * marcadores de data/hora. Evita falso positivo em máscaras como "0,00".
    */
   function isDateFormatCode(code) {
     if (!code) return false;
-    const stripped = String(code).replace(/"[^"]*"|\\.|\[[^\]]*\]/g, '');
-    return /[ymdhs]/i.test(stripped);
+    return /[ymdhs]/i.test(stripFormatLiterals(code));
+  }
+
+  /**
+   * O formato mostra hora quando restam "h", "s" ou AM/PM. "m" sozinho é mês:
+   * só vira minuto ao lado de hora, que o "h" já denuncia.
+   */
+  function hasTimeInFormatCode(code) {
+    if (!code) return false;
+    const stripped = stripFormatLiterals(code);
+    return /[hs]/i.test(stripped) || /am\/pm|a\/p/i.test(stripped);
   }
 
   function isDateStyle(numFmtId, formatCode) {
     return BUILTIN_DATE_FORMATS.has(Number(numFmtId)) || isDateFormatCode(formatCode);
+  }
+
+  /** O formato declarado manda; sem ele, vale a tabela de embutidos. */
+  function hasTimeComponent(numFmtId, formatCode) {
+    if (formatCode) return hasTimeInFormatCode(formatCode);
+    return BUILTIN_TIME_FORMATS.has(Number(numFmtId));
+  }
+
+  /**
+   * Formato de data *pura* — o único aceitável para a Data Efetiva de Emissão.
+   * "dd/mm/yyyy hh:mm:ss" é estilo de data, mas não é data pura.
+   */
+  function isDateOnlyStyle(numFmtId, formatCode) {
+    return isDateStyle(numFmtId, formatCode) && !hasTimeComponent(numFmtId, formatCode);
   }
 
   /** Época do Excel: 1899-12-30 (ou 1904-01-01 em pastas legadas do Mac). */
@@ -166,7 +201,10 @@
   V.dates = {
     MS_PER_DAY,
     isDateFormatCode,
+    hasTimeInFormatCode,
+    hasTimeComponent,
     isDateStyle,
+    isDateOnlyStyle,
     serialToDate,
     dateToSerial,
     truncateSerial,

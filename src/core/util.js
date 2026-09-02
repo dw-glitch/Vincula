@@ -8,7 +8,7 @@
 
   const V = (scope.Vincula = scope.Vincula || {});
 
-  V.VERSION = '2.1.0';
+  V.VERSION = '2.1.1';
   V.APP_NAME = 'Vincula';
 
   /* ------------------------------------------------------------------ *

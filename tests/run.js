@@ -97,12 +97,14 @@ function ldRows() {
     [{ number: 3 }, { text: 'DOC-003' }, { inline: '' }, null, { text: 'ok' }, { formula: 'A4*2', cached: '6' }],
     // 5: data gravada como TEXTO → precisa virar data real do Excel
     [{ number: 4 }, { text: 'DOC-005' }, { inline: '' }, { text: '04/08/2026', style: STYLE.TEXT }, { text: 'ok' }, { formula: 'A5*2', cached: '8' }],
-    // 6: GRDT vazia na relação → GRDT preservada, data atualizada
-    [{ number: 5 }, { text: 'DOC-006' }, { text: '777' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'ok' }, { formula: 'A6*2', cached: '10' }],
+    // 6: GRDT vazia na relação → GRDT preservada, data atualizada.
+    //    Data formatada com o embutido 22 (m/d/yy h:mm): exibiria hora.
+    [{ number: 5 }, { text: 'DOC-006' }, { text: '777' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATETIME }, { text: 'ok' }, { formula: 'A6*2', cached: '10' }],
     // 7: documento fora da relação → linha intocada
     [{ number: 6 }, { text: 'DOC-007' }, { text: '555' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'ok' }, { formula: 'A7*2', cached: '12' }],
-    // 8: GRDT é fórmula → gravação bloqueada, fórmula preservada
-    [{ number: 7 }, { text: 'DOC-004' }, { formula: 'CONCATENATE("GR","555")', cached: 'GR555' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'ok' }, { formula: 'A8*2', cached: '14' }],
+    // 8: GRDT é fórmula → gravação bloqueada, fórmula preservada.
+    //    Data com formato personalizado "dd/mm/yyyy hh:mm:ss".
+    [{ number: 7 }, { text: 'DOC-004' }, { formula: 'CONCATENATE("GR","555")', cached: 'GR555' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATETIME_CUSTOM }, { text: 'ok' }, { formula: 'A8*2', cached: '14' }],
   ];
 }
 
@@ -217,6 +219,21 @@ async function main() {
   check('"05/08/2026, 16:58" não é tratada como data inválida', commaParsed !== null);
   equal('"05/08/2026, 16:58" vira 05/08/2026', V.dates.formatDate(commaParsed), '05/08/2026');
   equal('vírgula: sem resíduo de hora', commaParsed && (commaParsed.getUTCHours() + commaParsed.getUTCMinutes()), 0);
+
+  // Um formato com hora continua sendo estilo de data para LEITURA, mas não
+  // serve para GRAVAR: o serial é meia-noite e o Excel exibiria o "00:00:00".
+  check('"dd/mm/yyyy" é data pura', V.dates.isDateOnlyStyle(165, 'dd/mm/yyyy'));
+  check('"dd-mmm-yy" é data pura', V.dates.isDateOnlyStyle(165, 'dd-mmm-yy'));
+  check('"[$-416]dd/mm/yyyy" é data pura', V.dates.isDateOnlyStyle(165, '[$-416]dd/mm/yyyy'));
+  check('literal entre aspas não vira hora', V.dates.isDateOnlyStyle(165, 'dd/mm/yyyy" (horário oficial)"'));
+  check('"dd/mm/yyyy hh:mm:ss" ainda é estilo de data', V.dates.isDateStyle(165, 'dd/mm/yyyy hh:mm:ss'));
+  check('"dd/mm/yyyy hh:mm:ss" NÃO é data pura', !V.dates.isDateOnlyStyle(165, 'dd/mm/yyyy hh:mm:ss'));
+  check('"dd/mm/yyyy hh:mm" NÃO é data pura', !V.dates.isDateOnlyStyle(165, 'dd/mm/yyyy hh:mm'));
+  check('"dd/mm/yyyy h:mm AM/PM" NÃO é data pura', !V.dates.isDateOnlyStyle(165, 'dd/mm/yyyy h:mm AM/PM'));
+  check('embutido 14 (mm-dd-yy) é data pura', V.dates.isDateOnlyStyle(14, undefined));
+  check('embutido 22 (m/d/yy h:mm) NÃO é data pura', !V.dates.isDateOnlyStyle(22, undefined));
+  check('embutido 21 (h:mm:ss) NÃO é data pura', !V.dates.isDateOnlyStyle(21, undefined));
+  check('"0,00" não é estilo de data', !V.dates.isDateStyle(165, '0,00'));
 
   /* ---------------- Abertura e mapeamento ---------------- */
   suite('Abertura, amostragem e sugestão de mapeamento');
@@ -346,7 +363,17 @@ async function main() {
 
   const grdt006 = V.xlsx.getCell(out.model, 6, 3);
   equal('GRDT preservada quando ausente na relação', V.xlsx.cellDisplay(grdt006), '777');
-  equal('data de DOC-006 atualizada', V.xlsx.cellDisplay(V.xlsx.getCell(out.model, 6, 4)), '10/03/2026');
+
+  // A célula vinha com formato de data+hora: a gravação precisa trocá-lo por
+  // data pura, senão o Excel exibe "10/03/2026 00:00:00".
+  const date006 = V.xlsx.getCell(out.model, 6, 4);
+  equal('data de DOC-006 atualizada', V.xlsx.cellDisplay(date006), '10/03/2026');
+  check(
+    'formato embutido com hora (22) trocado por data pura',
+    V.xlsx.isDateOnlyStyleId(out.wb.styles, date006.styleId),
+    `styleId=${date006.styleId}`
+  );
+  check('estilo de data pura preservado como estava', date001.styleId === STYLE.DATE, `styleId=${date001.styleId}`);
 
   equal('linha de DOC-007 intocada (GRDT)', V.xlsx.cellDisplay(V.xlsx.getCell(out.model, 7, 3)), '555');
   equal('linha de DOC-007 intocada (data)', V.xlsx.getCell(out.model, 7, 4).numeric, SERIAL_2026_01_01);
@@ -354,7 +381,13 @@ async function main() {
   const grdtFormula = V.xlsx.getCell(out.model, 8, 3);
   check('fórmula na coluna GRDT preservada', grdtFormula.hasFormula === true);
   equal('fórmula manteve o resultado em cache', V.xlsx.cellDisplay(grdtFormula), 'GR555');
-  equal('data de DOC-004 atualizada apesar da GRDT bloqueada', V.xlsx.cellDisplay(V.xlsx.getCell(out.model, 8, 4)), '15/01/2026');
+  const date004 = V.xlsx.getCell(out.model, 8, 4);
+  equal('data de DOC-004 atualizada apesar da GRDT bloqueada', V.xlsx.cellDisplay(date004), '15/01/2026');
+  check(
+    'formato personalizado "dd/mm/yyyy hh:mm:ss" trocado por data pura',
+    V.xlsx.isDateOnlyStyleId(out.wb.styles, date004.styleId),
+    `styleId=${date004.styleId}`
+  );
 
   const outSheetXml = out.xml;
   check('proteção de aba preservada', outSheetXml.includes('<sheetProtection'));
