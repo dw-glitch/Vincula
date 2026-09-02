@@ -3,7 +3,7 @@
 ## Como executar
 
 ```bash
-node tests/run.js            # suíte funcional e de integridade — 247 verificações
+node tests/run.js            # suíte funcional e de integridade — 262 verificações
 node tests/bench.js          # volume: 100 LDs × (200 documentos + aba de CV) = 21.000
 node tests/bench.js 5 4000   # volume: 5 LDs × (4.000 documentos + aba de CV)
 ```
@@ -34,7 +34,7 @@ na gravação, a suíte acusa.
   casa com *Documento*.
 - Cabeçalho localizado sozinho na **linha 3**, sob título e linha em branco.
 
-### Datas — 18 verificações
+### Datas — 30 verificações
 - `04/08/2026 08:31:45` → `04/08/2026`, sem resíduo de hora/minuto/segundo/milissegundo.
 - Serial fracionário truncado no domínio numérico.
 - Ida e volta serial ↔ data preserva o dia.
@@ -62,9 +62,12 @@ na gravação, a suíte acusa.
 - Documento fora da relação não gera registro.
 - Documento em duas LDs gera um registro por LD.
 
-### Gravação, integridade e preservação — 33 verificações
+### Gravação, integridade e preservação — 36 verificações
 - Auditoria de integridade aprovada, com a planilha inteira comparada.
 - GRDT e data gravadas corretamente; data é **numérica com estilo de data**, nunca texto.
+- Coluna formatada com data+hora (`dd/mm/yyyy hh:mm:ss` ou o embutido 22) recebe formato de
+  **data pura** na gravação — o Excel não exibe mais o `00:00:00` pendurado. Uma coluna que já
+  estava em formato de data pura mantém o estilo original.
 - Data inválida preserva a data original enquanto a GRDT é atualizada.
 - Linha de documento fora da relação permanece intocada.
 - Célula de GRDT com fórmula é **bloqueada**, a fórmula e seu cache sobrevivem, e a data da mesma

@@ -80,8 +80,11 @@
       addedXfs: [],
       addedNumFmts: [],
       dateStyleIds: new Set(),
+      dateOnlyStyleIds: new Set(),
       dateStyleCache: new Map(),
       dateNumFmtId: null,
+      baseXfCount: 0,
+      baseDateNumFmtId: null,
       dirty: false,
     };
     if (!xml) return styles;
@@ -106,16 +109,29 @@
       while ((x = XF_RE.exec(block[1]))) {
         const attrs = parseAttrs(x[1]);
         const numFmtId = Number(attrs.numFmtId || 0);
+        const formatCode = styles.numFmts.get(numFmtId);
         const index = styles.cellXfs.length;
         styles.cellXfs.push({ raw: x[0], numFmtId });
-        if (D.isDateStyle(numFmtId, styles.numFmts.get(numFmtId))) styles.dateStyleIds.add(index);
+        if (D.isDateStyle(numFmtId, formatCode)) styles.dateStyleIds.add(index);
+        if (D.isDateOnlyStyle(numFmtId, formatCode)) styles.dateOnlyStyleIds.add(index);
       }
     }
+
+    // Fronteira entre o que veio do arquivo e o que o Vincula acrescenta:
+    // é por ela que o rollback sabe o que desfazer.
+    styles.baseXfCount = styles.cellXfs.length;
+    styles.baseDateNumFmtId = styles.dateNumFmtId;
     return styles;
   }
 
+  /** A célula é lida como data — inclusive quando o formato traz hora junto. */
   function isDateStyleId(styles, styleId) {
     return styles.dateStyleIds.has(Number(styleId || 0));
+  }
+
+  /** A célula exibe data *pura*, sem resíduo de hora. */
+  function isDateOnlyStyleId(styles, styleId) {
+    return styles.dateOnlyStyleIds.has(Number(styleId || 0));
   }
 
   function allocateDateNumFmt(styles) {
@@ -131,13 +147,17 @@
 
   /**
    * Devolve um styleId que exibe a célula como data preservando o restante da
-   * formatação de origem (fonte, preenchimento, bordas, alinhamento). Quando o
-   * estilo atual já é de data, ele é mantido intacto.
+   * formatação de origem (fonte, preenchimento, bordas, alinhamento).
+   *
+   * Só um formato de data *pura* é mantido intacto. Um formato com hora —
+   * "dd/mm/yyyy hh:mm:ss", o embutido 22 — é substituído por dd/mm/yyyy: o
+   * serial já é meia-noite, e mantê-lo faria o Excel exibir a data com o
+   * "00:00:00" pendurado, que é exatamente o resíduo que o sistema proíbe.
    */
   function ensureDateStyle(styles, sourceStyleId) {
     const source = Number(sourceStyleId || 0);
     if (!styles.available) return { styleId: source, changed: false, supported: false };
-    if (isDateStyleId(styles, source)) return { styleId: source, changed: false, supported: true };
+    if (isDateOnlyStyleId(styles, source)) return { styleId: source, changed: false, supported: true };
     if (styles.dateStyleCache.has(source)) {
       return { styleId: styles.dateStyleCache.get(source), changed: false, supported: true };
     }
@@ -158,6 +178,7 @@
     styles.cellXfs.push({ raw, numFmtId });
     styles.addedXfs.push(raw);
     styles.dateStyleIds.add(styleId);
+    styles.dateOnlyStyleIds.add(styleId);
     styles.dateStyleCache.set(source, styleId);
     styles.dirty = true;
     return { styleId, changed: true, supported: true };
@@ -730,13 +751,32 @@
     return bytes;
   }
 
+  /**
+   * Devolve styles.xml ao estado de leitura: os xf e o numFmt criados durante
+   * a gravação somem. Sem isso, uma segunda tentativa no mesmo arquivo
+   * apontaria para estilos que o rollback já tinha deixado de fora do pacote.
+   */
+  function resetAddedStyles(styles) {
+    if (!styles) return;
+    for (let id = styles.cellXfs.length - 1; id >= styles.baseXfCount; id--) {
+      styles.dateStyleIds.delete(id);
+      styles.dateOnlyStyleIds.delete(id);
+    }
+    styles.cellXfs.length = styles.baseXfCount;
+    if (styles.dateNumFmtId !== styles.baseDateNumFmtId) {
+      styles.numFmts.delete(styles.dateNumFmtId);
+      styles.dateNumFmtId = styles.baseDateNumFmtId;
+    }
+    styles.addedXfs.length = 0;
+    styles.addedNumFmts.length = 0;
+    styles.dateStyleCache.clear();
+    styles.dirty = false;
+  }
+
   /** Descarta emendas pendentes: o ZIP original permanece como estava. */
   function rollback(wb) {
     wb.pendingParts.clear();
-    wb.styles.dirty = false;
-    wb.styles.addedXfs.length = 0;
-    wb.styles.addedNumFmts.length = 0;
-    wb.styles.dateStyleCache.clear();
+    resetAddedStyles(wb.styles);
   }
 
   function close(wb) {
@@ -774,5 +814,6 @@
     parseStyles,
     ensureDateStyle,
     isDateStyleId,
+    isDateOnlyStyleId,
   };
 })(typeof self !== 'undefined' ? self : this);
