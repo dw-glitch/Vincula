@@ -60,10 +60,6 @@
       eta: 0,
     };
 
-    /* ---------------------------------------------------------------- *
-     * Eventos
-     * ---------------------------------------------------------------- */
-
     function on(event, handler) {
       (listeners[event] || (listeners[event] = [])).push(handler);
       return () => off(event, handler);
@@ -108,15 +104,6 @@
       if (cancelled) throw new CancelledError();
     }
 
-    /* ---------------------------------------------------------------- *
-     * Abas mapeadas (alvos)
-     *
-     * Cada arquivo carrega uma lista de abas a atualizar. A Relação GRCON tem
-     * sempre uma; a LD costuma ter a aba de documentos e, quando existe, a de
-     * CV (currículos) — todas passam pela mesma indexação e pela mesma
-     * gravação, dentro do mesmo arquivo de saída.
-     * ---------------------------------------------------------------- */
-
     function hydrateMappings(meta) {
       const source = meta.mappings && meta.mappings.length ? meta.mappings : [meta.mapping];
       return source.map((mapping, index) => ({ enabled: true, primary: index === 0, ...mapping }));
@@ -127,16 +114,11 @@
       return list.filter((mapping) => mapping && mapping.enabled !== false);
     }
 
-    /** Rótulo das abas de um arquivo, para relatório e log. */
     function sheetLabel(file) {
       return enabledMappings(file)
         .map((mapping) => mapping.sheetName)
         .join(' + ');
     }
-
-    /* ---------------------------------------------------------------- *
-     * Carga de arquivos
-     * ---------------------------------------------------------------- */
 
     async function readFile(file) {
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -146,7 +128,6 @@
 
     async function openInPool(file, profile, fileId, onProgress) {
       const { bytes, hash } = await readFile(file);
-      // O buffer é transferido: o worker passa a ser o dono, sem cópia.
       return pool.run(
         'open',
         { fileId, name: file.name, bytes, hash, profile },
@@ -164,19 +145,25 @@
       const fileId = `rel-${++sequence}`;
       const meta = await openInPool(file, 'relation', fileId);
       const relationMappings = hydrateMappings(meta);
+      const primary = relationMappings[0];
+      const relationType = meta.relationType || primary.relationType || 'history';
+      const sourceLabel = meta.sourceLabel || primary.sourceLabel || (relationType === 'conference' ? 'Conferência Histórico × Consulta Geral' : 'Histórico GRCON');
       state.relation = {
         fileId,
         name: file.name,
         size: file.size,
         hash: meta.hash,
         meta,
+        relationType,
+        sourceLabel,
+        sourceShortLabel: meta.sourceShortLabel || primary.sourceShortLabel || (relationType === 'conference' ? 'Conferência' : 'Histórico'),
         mappings: relationMappings,
-        mapping: relationMappings[0],
+        mapping: primary,
       };
       state.analysis = null;
       state.timings.leituraRelacao = Date.now() - started;
-      progress('leitura', 100, `Relação carregada · ${meta.sheets.length} aba(s)`);
-      log('info', `Relação GRCON carregada: ${file.name}`, { abas: meta.sheets.length, cache: meta.fromCache });
+      progress('leitura', 100, `${sourceLabel} identificado · ${meta.sheets.length} aba(s)`);
+      log('info', `${sourceLabel} carregado: ${file.name}`, { tipo: relationType, abas: meta.sheets.length, cache: meta.fromCache });
       return state.relation;
     }
 
@@ -192,9 +179,6 @@
       const descriptors = files.map((file) => ({ file, fileId: `ld-${++sequence}` }));
       progress('leitura', 2, `Lendo ${files.length} LD(s)`);
 
-      // A leitura do File acontece na página (FileReader não cruza o worker);
-      // a abertura do ZIP e a varredura, no worker. O pool limita quantos
-      // arquivos ficam em voo, o que mantém o pico de memória sob controle.
       const loaded = [];
       let done = 0;
       await Promise.all(
@@ -210,8 +194,6 @@
               hash: meta.hash,
               meta,
               mappings,
-              // A primeira aba continua sendo "o" mapeamento do arquivo; as
-              // demais (CV/currículos, por exemplo) vêm logo atrás.
               mapping: mappings[0],
               fromCache: meta.fromCache,
             });
@@ -235,15 +217,12 @@
       const extraSheets = loaded
         .filter((ld) => !ld.error && ld.mappings.length > 1)
         .map((ld) => `${ld.name}: ${ld.mappings.slice(1).map((m) => m.sheetName).join(', ')}`);
-      if (extraSheets.length) {
-        log('info', `${extraSheets.length} LD(s) com mais de uma aba a atualizar`, extraSheets);
-      }
+      if (extraSheets.length) log('info', `${extraSheets.length} LD(s) com mais de uma aba a atualizar`, extraSheets);
 
       log('info', `${loaded.filter((l) => !l.error).length} LD(s) carregada(s)`, { tempoMs: state.timings.leituraLds });
       return state.lds;
     }
 
-    /** Reamostra uma aba diferente da sugerida, sob demanda da interface. */
     async function inspectSheet(fileId, sheetPath, profile) {
       return pool.run('scanSheet', { fileId, sheetPath, profile }, { fileId });
     }
@@ -252,13 +231,28 @@
       return pool.run('columnOptions', { fileId, sheetPath, headerRow }, { fileId });
     }
 
-    /* ---------------------------------------------------------------- *
-     * Análise
-     * ---------------------------------------------------------------- */
-
     function validateMappings() {
+      const relationMapping = state.relation.mapping;
+      if (relationMapping.relationType === 'conference') {
+        if (!relationMapping.documentCol) {
+          throw new Error('Não foi possível identificar a coluna “Código/Documento” na Conferência Histórico × Consulta Geral.');
+        }
+        if (!relationMapping.grdtCol) {
+          throw new Error('Não foi possível identificar a coluna “Número da GRDT/eGRDT” na Conferência Histórico × Consulta Geral.');
+        }
+        if (!relationMapping.revisionCol) {
+          throw new Error('Não foi possível identificar a coluna “Revisão enviada na GRDT” na Conferência Histórico × Consulta Geral.');
+        }
+        if (!relationMapping.dateCol) {
+          throw new Error('Não foi possível identificar “Data Efetiva de Emissão” ou “Data da confirmação” na Conferência Histórico × Consulta Geral.');
+        }
+        if (!relationMapping.conferenceCol) {
+          throw new Error('Não foi possível identificar a coluna “Conferência”, necessária para confirmar a postagem no SIGEM.');
+        }
+      }
+
       const targets = [
-        { label: `Relação ${state.relation.name}`, mapping: state.relation.mapping, primary: true },
+        { label: `Relação ${state.relation.name}`, mapping: relationMapping, primary: true, relation: true },
         ...state.lds
           .filter((ld) => !ld.error)
           .flatMap((ld) =>
@@ -266,16 +260,14 @@
               label: mapping.primary ? ld.name : `${ld.name} · aba ${mapping.sheetName}`,
               mapping,
               primary: !!mapping.primary,
+              relation: false,
             }))
           ),
       ];
 
       const seen = new Set();
       for (const target of targets) {
-        const { documentCol, grdtCol, dateCol, revisionCol } = target.mapping;
-        // Na aba principal os três campos são obrigatórios. Numa aba adicional
-        // (CV, por exemplo) basta o documento e ao menos um campo gravável —
-        // ela não precisa repetir todas as colunas da aba de documentos.
+        const { documentCol, grdtCol, dateCol, revisionCol, conferenceCol, sigemStatusCol } = target.mapping;
         if (!documentCol || (target.primary ? !grdtCol || !dateCol : !grdtCol && !dateCol)) {
           throw new Error(
             target.primary
@@ -283,7 +275,9 @@
               : `Associe Documento e ao menos GRDT ou Data em "${target.label}", ou desmarque a aba.`
           );
         }
-        const cols = [documentCol, grdtCol, dateCol, revisionCol].filter(Boolean);
+        const cols = target.relation
+          ? [documentCol, grdtCol, dateCol, revisionCol, conferenceCol, sigemStatusCol].filter(Boolean)
+          : [documentCol, grdtCol, dateCol, revisionCol].filter(Boolean);
         if (new Set(cols).size < cols.length) {
           throw new Error(`Uma mesma coluna foi associada a dois campos em "${target.label}".`);
         }
@@ -306,7 +300,7 @@
       metrics.documentsIndexed = 0;
       publishMetrics();
 
-      progress('indexacao', 5, 'Indexando a Relação GRCON');
+      progress('indexacao', 5, `Indexando ${state.relation.sourceLabel || 'Relação GRCON'}`);
       const relationIndex = await pool.run(
         'indexRelation',
         { fileId: state.relation.fileId, mapping: state.relation.mapping },
@@ -314,13 +308,14 @@
       );
       checkCancelled();
       if (relationIndex.headerWarning) log('warn', relationIndex.headerWarning);
+      if (relationIndex.conferenceStats) {
+        log('info', 'Conferência filtrada pela confirmação real no SIGEM', relationIndex.conferenceStats);
+      }
 
       metrics.documentsIndexed = relationIndex.uniqueDocuments;
       publishMetrics();
-      progress('indexacao', 25, `${relationIndex.uniqueDocuments} documento(s) únicos na relação`);
+      progress('indexacao', 25, `${relationIndex.uniqueDocuments} documento(s) confirmado(s)/único(s) na relação`);
 
-      // Um alvo por aba mapeada: a mesma LD entra mais de uma vez quando tem
-      // aba de documentos e aba de CV (currículos).
       const sheetTargets = usable.flatMap((ld) => enabledMappings(ld).map((mapping) => ({ ld, mapping })));
       if (!sheetTargets.length) throw new Error('Nenhuma aba habilitada para atualização nas LDs carregadas.');
 
@@ -350,10 +345,7 @@
           log('error', `Falha ao indexar ${ld.name} · aba ${mapping.sheetName}`, result.error.message);
           continue;
         }
-        // O nome do arquivo é por arquivo; a aba, por ocorrência.
-        if (!files.has(ld.fileId)) {
-          files.set(ld.fileId, { id: ld.fileId, name: result.value.name, sheetName: ld.mapping.sheetName });
-        }
+        if (!files.has(ld.fileId)) files.set(ld.fileId, { id: ld.fileId, name: result.value.name, sheetName: ld.mapping.sheetName });
         indexedSheets.add(`${ld.fileId}|${mapping.sheetPath}`);
         indexedFiles.push(result.value);
       }
@@ -363,11 +355,16 @@
       const globalIndex = V.indexer.buildGlobalIndex(indexedFiles);
       const analysis = V.analyzer.analyze(relationIndex, globalIndex, files, analysisOptions);
 
-      // Enriquecimento para o relatório: valor bruto da data de origem.
-      const rawByDocument = new Map(relationIndex.rows.map((r) => [r.document, r]));
+      // O valor bruto precisa vir exatamente da ocorrência que venceu o índice.
+      // Em uma Conferência, uma linha posterior não confirmada nunca pode
+      // sobrescrever a evidência da linha confirmada escolhida.
+      const rawByDocument = relationIndex.selected;
       for (const record of analysis.records) {
         const source = rawByDocument.get(record.document);
         record.sourceDateRaw = source ? source.sourceDateRaw : '';
+        record.relationSource = relationIndex.sourceLabel || state.relation.sourceLabel || '';
+        record.conferenceStatus = source ? source.conferenceStatus || '' : '';
+        record.sigemStatus = source ? source.sigemStatus || '' : '';
       }
 
       analysis.relationIndex = relationIndex;
@@ -382,18 +379,10 @@
       metrics.documentsChanged = analysis.stats.willChange;
       publishMetrics();
 
-      progress(
-        'analise',
-        100,
-        `${analysis.stats.willChange} alteração(ões) prevista(s) em ${analysis.stats.sheetsWithChanges} aba(s)`
-      );
+      progress('analise', 100, `${analysis.stats.willChange} alteração(ões) prevista(s) em ${analysis.stats.sheetsWithChanges} aba(s)`);
       log('info', 'Análise concluída', { ...analysis.stats, abasIndexadas: indexedSheets.size });
       return analysis;
     }
-
-    /* ---------------------------------------------------------------- *
-     * Atualização e empacotamento
-     * ---------------------------------------------------------------- */
 
     async function generate(generateOptions = {}) {
       checkCancelled();
@@ -409,9 +398,7 @@
       const byId = new Map(state.lds.map((ld) => [ld.fileId, ld]));
       const targets = [...analysis.plans.entries()].map(([fileId, plan]) => ({ ld: byId.get(fileId), plan }));
 
-      if (!targets.length) {
-        log('warn', 'Nenhuma alteração a aplicar: todos os valores já conferem.');
-      }
+      if (!targets.length) log('warn', 'Nenhuma alteração a aplicar: todos os valores já conferem.');
 
       progress('atualizacao', 2, `Atualizando ${targets.length} LD(s)`);
       let finished = 0;
@@ -422,8 +409,6 @@
           payload: {
             fileId: ld.fileId,
             mapping: ld.mapping,
-            // Todas as abas mapeadas do arquivo vão na mesma tarefa: o plano é
-            // dividido por aba lá dentro e o pacote é fechado uma única vez.
             mappings: enabledMappings(ld),
             plan,
             options: { verify: generateOptions.verify !== false, level: 9 },
@@ -436,7 +421,7 @@
             metrics.cellsWritten += result.value.counters.authorizedCells;
             metrics.documentsProcessed += result.value.results.filter((r) => r.outcome === 'APLICADO').length;
           }
-          progress('atualizacao', Math.round((finished / targets.length) * 100), `${finished}/${targets.length} LD(s) atualizada(s)`);
+          progress('atualizacao', Math.round((finished / Math.max(1, targets.length)) * 100), `${finished}/${targets.length} LD(s) atualizada(s)`);
           publishMetrics();
         }
       );
@@ -484,7 +469,6 @@
 
       state.timings.atualizacao = Date.now() - started;
 
-      // Consolida o desfecho real de cada registro (inclusive bloqueios).
       const timestamp = new Date().toISOString();
       for (const record of analysis.records) {
         const outcome = outcomeByRecord.get(record.id);
@@ -504,10 +488,10 @@
         }
       }
 
-      /* ---------------- Relatório ---------------- */
       progress('relatorio', 20, 'Montando auditoria');
       const finishedAt = new Date();
       const totalMs = (state.timings.leituraRelacao || 0) + (state.timings.leituraLds || 0) + (state.timings.indexacao || 0) + state.timings.atualizacao;
+      const conferenceStats = analysis.relationIndex.conferenceStats;
 
       const summary = {
         'Versão do Vincula': V.VERSION,
@@ -518,10 +502,18 @@
         'Tempo de indexação': V.util.formatDuration(state.timings.indexacao || 0),
         'Tempo de atualização': V.util.formatDuration(state.timings.atualizacao || 0),
         'Relação GRCON': state.relation.name,
+        'Fonte identificada': state.relation.sourceLabel || 'Histórico GRCON',
         'Quantidade de LD carregadas': state.lds.length,
         'Quantidade de LD atualizadas': outputs.length,
         'Quantidade de abas atualizadas': analysis.stats.sheetsWithChanges,
         'Quantidade de documentos (relação)': analysis.stats.relationDocuments,
+        ...(conferenceStats
+          ? {
+              'Linhas da Conferência': conferenceStats.total,
+              'Postagens confirmadas pela Conferência': conferenceStats.confirmed,
+              'Linhas não confirmadas ignoradas': conferenceStats.excluded,
+            }
+          : {}),
         'Quantidade de correspondências analisadas': analysis.stats.records,
         'Documentos encontrados': analysis.stats.found,
         'Documentos não encontrados': analysis.stats.missing,
@@ -543,9 +535,12 @@
         records: analysis.records,
         relation: {
           arquivo: state.relation.name,
+          fonte: state.relation.sourceLabel || 'Histórico GRCON',
+          tipo: state.relation.relationType || 'history',
           hash: state.relation.hash,
           aba: state.relation.mapping.sheetName,
           linhaCabecalho: state.relation.mapping.headerRow,
+          conferencia: conferenceStats || null,
         },
         duplicates: analysis.relationIndex.duplicates,
         missing: analysis.missing,
@@ -570,7 +565,6 @@
       const auditBytes = await V.audit.buildAuditWorkbook(report);
       const jsonLog = V.audit.buildJsonLog(report);
 
-      /* ---------------- Pacote ---------------- */
       progress('compactacao', 5, 'Compactando pacote final');
       const packageBlob = await V.packager.buildPackage(outputs, auditBytes, jsonLog, summary, (percent) =>
         progress('compactacao', Math.max(5, Math.round(percent)), 'Compactando pacote final')
@@ -605,10 +599,6 @@
       };
     }
 
-    /* ---------------------------------------------------------------- *
-     * Ciclo de vida
-     * ---------------------------------------------------------------- */
-
     function cancel() {
       cancelled = true;
       pool.cancel();
@@ -616,7 +606,6 @@
     }
 
     async function releaseAll() {
-      // Cada worker tem seu próprio registro: a liberação precisa alcançar todos.
       try {
         await pool.broadcast('releaseAll', {});
       } catch (_) {
