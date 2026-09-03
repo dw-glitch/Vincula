@@ -13,26 +13,54 @@
   'use strict';
 
   const V = (scope.Vincula = scope.Vincula || {});
-  const { squash, normalizeDocument, looseDocumentKey } = V.util;
+  const { squash, normalizeDocument, looseDocumentKey, normalizeHeader } = V.util;
   const X = V.xlsx;
   const D = V.dates;
 
   /**
+   * Rótulos de confirmação conhecidos do próprio GRCON. A versão atual do
+   * relatório usa "Postado"; versões anteriores do módulo usavam
+   * "Confirmado". A lista é fechada de propósito: nunca inferimos postagem
+   * por um texto genérico nem pelo Status SIGEM.
+   */
+  const CONFIRMED_CONFERENCE = new Set([
+    'POSTADO',
+    'CONFIRMADO',
+    'CONFIRMADA',
+    'POSTAGEM CONFIRMADA',
+    'POSTAGEM CONFIRMADO',
+  ]);
+
+  function isConfirmedConferenceStatus(value) {
+    return CONFIRMED_CONFERENCE.has(normalizeHeader(value));
+  }
+
+  /**
    * Índice da Relação GRCON.
    *
-   * Regra de duplicidade: vence a *última* ocorrência física do documento,
-   * inclusive quando ela tiver data vazia — é a ordem em que o sistema de
-   * origem emitiu as guias.
+   * Histórico normal: comportamento legado, em que todas as linhas válidas de
+   * documento entram no índice e a última ocorrência física vence.
+   *
+   * Conferência Histórico × Consulta Geral: todas as linhas ficam registradas
+   * em `rows` para auditoria, mas SOMENTE linhas cuja coluna Conferência diga
+   * explicitamente que a postagem foi confirmada entram em `selected` e podem
+   * chegar à lógica de atualização das LDs.
    */
   function buildRelationIndex(wb, model, mapping) {
     const documentCol = Number(mapping.documentCol);
     const grdtCol = Number(mapping.grdtCol);
     const dateCol = Number(mapping.dateCol);
     const revisionCol = Number(mapping.revisionCol) || null;
+    const conferenceCol = Number(mapping.conferenceCol) || null;
+    const sigemStatusCol = Number(mapping.sigemStatusCol) || null;
+    const relationType = mapping.relationType === 'conference' ? 'conference' : 'history';
     const firstRow = Number(mapping.headerRow) + 1;
 
     const rows = [];
+    const eligibleRows = [];
+    const excludedRows = [];
     const occurrences = new Map();
+    const statusCounts = new Map();
 
     for (let row = firstRow; row <= model.maxRow; row++) {
       const rawDocument = X.textAt(model, row, documentCol);
@@ -42,6 +70,8 @@
       const grdtCell = X.getCell(model, row, grdtCol);
       const dateCell = X.getCell(model, row, dateCol);
       const revisionCell = revisionCol ? X.getCell(model, row, revisionCol) : null;
+      const conferenceCell = conferenceCol ? X.getCell(model, row, conferenceCol) : null;
+      const sigemStatusCell = sigemStatusCol ? X.getCell(model, row, sigemStatusCol) : null;
 
       const sourceDateRaw = dateCell
         ? dateCell.isDate
@@ -49,19 +79,25 @@
           : squash(dateCell.value !== '' ? dateCell.value : dateCell.numeric)
         : '';
 
-      // Datas vindas de célula numérica já são seriais; texto passa pelo parser.
       const parsed = dateCell && dateCell.numeric !== null && dateCell.isDate
         ? D.serialToDate(D.truncateSerial(dateCell.numeric), wb.date1904)
         : D.parseDate(sourceDateRaw, wb.date1904);
 
       const dateValid = !!parsed && !D.isBlankDateToken(sourceDateRaw);
+      const conferenceStatus = conferenceCol ? X.cellDisplay(conferenceCell) : '';
+      const sigemStatus = sigemStatusCol ? X.cellDisplay(sigemStatusCell) : '';
+      const confirmedPost = relationType !== 'conference' || isConfirmedConferenceStatus(conferenceStatus);
 
       const entry = {
         document,
         rawDocument,
         row,
+        relationType,
         grdt: X.cellDisplay(grdtCell),
         revision: revisionCol ? X.cellDisplay(revisionCell) : '',
+        conferenceStatus,
+        sigemStatus,
+        confirmedPost,
         sourceDateRaw,
         dateIso: dateValid ? D.formatIsoDate(parsed) : null,
         dateText: dateValid ? D.formatDate(parsed) : '',
@@ -69,6 +105,19 @@
       };
 
       rows.push(entry);
+
+      if (relationType === 'conference') {
+        const statusKey = normalizeHeader(conferenceStatus) || '(VAZIO)';
+        statusCounts.set(statusKey, (statusCounts.get(statusKey) || 0) + 1);
+      }
+
+      if (!confirmedPost) {
+        entry.excludedReason = `Conferência "${conferenceStatus || 'vazia'}" não confirma postagem no SIGEM.`;
+        excludedRows.push(entry);
+        continue;
+      }
+
+      eligibleRows.push(entry);
       let list = occurrences.get(document);
       if (!list) occurrences.set(document, (list = []));
       list.push(entry);
@@ -80,24 +129,44 @@
       const winner = list[list.length - 1];
       selected.set(document, winner);
       if (list.length > 1) {
-        const signatures = new Set(list.map((x) => `${squash(x.grdt)} ${x.dateText}`));
+        const signatures = new Set(list.map((x) => `${squash(x.grdt)} ${squash(x.revision)} ${x.dateText}`));
         duplicates.push({
           document,
           count: list.length,
           selectedRow: winner.row,
           conflict: signatures.size > 1,
-          candidates: list.map((x) => ({ row: x.row, grdt: x.grdt, dateText: x.dateText, dateValid: x.dateValid })),
+          candidates: list.map((x) => ({
+            row: x.row,
+            grdt: x.grdt,
+            revision: x.revision,
+            dateText: x.dateText,
+            dateValid: x.dateValid,
+            conferenceStatus: x.conferenceStatus,
+          })),
         });
       }
     }
 
+    const conferenceStats = relationType === 'conference'
+      ? {
+          total: rows.length,
+          confirmed: eligibleRows.length,
+          excluded: excludedRows.length,
+          byStatus: Object.fromEntries(statusCounts),
+        }
+      : null;
+
     return {
+      relationType,
       rows,
+      eligibleRows,
+      excludedRows,
       selected,
       duplicates,
       totalRows: rows.length,
       uniqueDocuments: selected.size,
-      invalidDates: rows.filter((x) => !x.dateValid),
+      invalidDates: eligibleRows.filter((x) => !x.dateValid),
+      conferenceStats,
     };
   }
 
@@ -137,9 +206,6 @@
         beforeDate: X.cellDisplay(dateCell),
         beforeDateSerial: dateCell && dateCell.isDate ? D.truncateSerial(dateCell.numeric) : null,
         beforeRevisao: revisionCol ? X.cellDisplay(revisionCell) : '',
-        // Campos que esta aba realmente possui: a de CV pode não repetir
-        // todas as colunas da aba de documentos, e o que não existe aqui não
-        // pode ser prometido na prévia nem gravado depois.
         hasGrdtCol: !!grdtCol,
         hasDateCol: !!dateCol,
         hasRevisionCol: !!revisionCol,
@@ -152,15 +218,9 @@
     return entries;
   }
 
-  /**
-   * Índice global documento → ocorrências, unindo todas as LDs.
-   * É a estrutura que transforma a busca em O(1).
-   */
+  /** Índice global documento → ocorrências, unindo todas as LDs. */
   function buildGlobalIndex(files) {
     const byDocument = new Map();
-    // Índice secundário por chave frouxa (zero à esquerda, pontuação e
-    // espaço interno ignorados). Custa pouco calcular sempre; só é
-    // consultado quando o usuário liga a correspondência flexível.
     const byLooseKey = new Map();
     let total = 0;
     let duplicated = 0;
@@ -185,5 +245,11 @@
     return { byDocument, byLooseKey, totalEntries: total, uniqueDocuments: byDocument.size, duplicatedDocuments: duplicated };
   }
 
-  V.indexer = { buildRelationIndex, buildLdEntries, buildGlobalIndex };
+  V.indexer = {
+    CONFIRMED_CONFERENCE,
+    isConfirmedConferenceStatus,
+    buildRelationIndex,
+    buildLdEntries,
+    buildGlobalIndex,
+  };
 })(typeof self !== 'undefined' ? self : this);

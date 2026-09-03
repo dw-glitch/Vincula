@@ -8,7 +8,7 @@
 
   const V = (scope.Vincula = scope.Vincula || {});
 
-  V.VERSION = '2.1.1';
+  V.VERSION = '2.2.0';
   V.APP_NAME = 'Vincula';
 
   /* ------------------------------------------------------------------ *
@@ -172,7 +172,6 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&apos;')
-      // Caracteres de controle não são válidos em XML 1.0.
       .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
   }
 

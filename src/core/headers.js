@@ -18,9 +18,9 @@
    *  - required:  grupos de tokens; ao menos um token de cada grupo precisa
    *               estar presente para o cabeçalho ser candidato;
    *  - optional:  tokens que reforçam a confiança;
-   *  - forbidden: tokens que eliminam o candidato (evita confundir a data de
-   *               postagem com a data efetiva, ou "tipo de documento" com o
-   *               código do documento).
+   *  - forbidden: tokens que eliminam o candidato (evita confundir campos
+   *               semanticamente próximos, como "Revisão enviada" e
+   *               "Revisão encontrada").
    */
   const FIELDS = {
     document: {
@@ -54,6 +54,8 @@
         'N GRDT',
         'NUMERO GRDT',
         'NUMERO DA GRDT',
+        'NUMERO EGRDT',
+        'NUMERO DA EGRDT',
         'CODIGO GRDT',
         'GUIA GRDT',
       ],
@@ -93,7 +95,7 @@
       ],
       required: [['DATA', 'DT'], ['GERACAO', 'POSTAGEM']],
       optional: ['GERACAO', 'POSTAGEM'],
-      forbidden: ['EFETIVA', 'VENCIMENTO'],
+      forbidden: ['EFETIVA', 'CONFIRMACAO', 'VENCIMENTO'],
     },
     revision: {
       label: 'Revisão',
@@ -114,32 +116,92 @@
       ],
       required: [['REVISAO', 'REV']],
       optional: ['ATUAL', 'ULTIMA', 'NUMERO', 'CODIGO', 'COD', 'DOCUMENTO'],
-      forbidden: ['DATA', 'GRDT', 'SITUACAO', 'STATUS', 'DESCRICAO', 'MOTIVO'],
+      forbidden: ['DATA', 'GRDT', 'SITUACAO', 'STATUS', 'DESCRICAO', 'MOTIVO', 'ENVIADA', 'ENVIADO', 'ENCONTRADA', 'ENCONTRADO'],
     },
   };
 
   /**
-   * A Relação GRCON nem sempre rotula sua própria coluna de data como
-   * "geração/postagem" — alguns exports já chamam essa coluna de
-   * "Data Efetiva de Emissão", com o mesmo sentido de "a data que vale para
-   * este documento". Um campo à parte reconhece as duas grafias sem herdar a
-   * exclusão mútua que existe entre elas (necessária do lado da LD, onde as
-   * duas podem coexistir como colunas diferentes).
+   * A Relação GRCON histórica nem sempre rotula sua própria coluna de data
+   * como "geração/postagem" — alguns exports já chamam essa coluna de
+   * "Data Efetiva de Emissão". Este campo cobre apenas o formato legado.
    */
   FIELDS.relationDate = {
-    label: 'Data (Relação GRCON)',
+    label: 'Data (Histórico GRCON)',
     exact: [...FIELDS.datePosting.exact, ...FIELDS.dateEffective.exact],
     required: [['DATA', 'DT'], ['GERACAO', 'POSTAGEM', 'EFETIVA', 'EFETIVO', 'EMISSAO']],
     optional: ['GERACAO', 'POSTAGEM', 'EFETIVA', 'EMISSAO'],
-    forbidden: ['VENCIMENTO', 'PREVISTA', 'RECEBIMENTO', 'ENVIO'],
+    forbidden: ['CONFIRMACAO', 'VENCIMENTO', 'PREVISTA', 'RECEBIMENTO', 'ENVIO'],
+  };
+
+  /** Revisão efetivamente enviada na eGRDT, não a revisão encontrada no SIGEM. */
+  FIELDS.revisionSent = {
+    label: 'Revisão enviada na GRDT',
+    exact: [
+      'REVISAO ENVIADA',
+      'REVISAO ENVIADA NA GRDT',
+      'REVISAO ENVIADA NA EGRDT',
+      'REVISAO DA GRDT',
+      'REVISAO DA EGRDT',
+      'REVISAO SUBMETIDA',
+      'REVISAO EMITIDA NA GRDT',
+    ],
+    required: [['REVISAO', 'REV'], ['ENVIADA', 'ENVIADO', 'SUBMETIDA', 'EMITIDA', 'GRDT', 'EGRDT']],
+    optional: ['ENVIADA', 'ENVIADO', 'SUBMETIDA', 'EMITIDA', 'GRDT', 'EGRDT'],
+    forbidden: ['DATA', 'STATUS', 'SITUACAO', 'ENCONTRADA', 'ENCONTRADO', 'ATUAL'],
+  };
+
+  /**
+   * Data confirmada usada pela Conferência Histórico × Consulta Geral.
+   * O relatório atual do GRCON exporta "Data da confirmação"; se uma versão
+   * futura expuser diretamente "Data Efetiva de Emissão", ela tem a mesma
+   * finalidade interna no Vincula e também é reconhecida.
+   */
+  FIELDS.conferenceDate = {
+    label: 'Data Efetiva de Emissão / Data da confirmação',
+    exact: [
+      ...FIELDS.dateEffective.exact,
+      'DATA DA CONFIRMACAO',
+      'DATA DE CONFIRMACAO',
+      'DATA CONFIRMACAO',
+      'DT DA CONFIRMACAO',
+      'DT CONFIRMACAO',
+      'PRIMEIRA CONFIRMACAO',
+      'DATA DA PRIMEIRA CONFIRMACAO',
+    ],
+    required: [['DATA', 'DT', 'PRIMEIRA'], ['EFETIVA', 'EFETIVO', 'EMISSAO', 'CONFIRMACAO']],
+    optional: ['EFETIVA', 'EMISSAO', 'CONFIRMACAO', 'PRIMEIRA'],
+    forbidden: ['GERACAO', 'POSTAGEM', 'ULTIMA', 'VENCIMENTO', 'PREVISTA', 'ENVIO'],
+  };
+
+  /** Resultado da comparação que diz se a postagem foi realmente confirmada. */
+  FIELDS.conferenceStatus = {
+    label: 'Conferência',
+    exact: [
+      'CONFERENCIA',
+      'STATUS DA CONFERENCIA',
+      'STATUS CONFERENCIA',
+      'SITUACAO DA CONFERENCIA',
+      'SITUACAO CONFERENCIA',
+      'RESULTADO DA CONFERENCIA',
+      'RESULTADO CONFERENCIA',
+    ],
+    required: [['CONFERENCIA']],
+    optional: ['STATUS', 'SITUACAO', 'RESULTADO'],
+    forbidden: ['SIGEM', 'ULTIMA', 'DATA'],
+  };
+
+  /** Status operacional do SIGEM é evidência informativa, não prova de postagem. */
+  FIELDS.sigemStatus = {
+    label: 'Status SIGEM',
+    exact: ['STATUS SIGEM', 'SITUACAO SIGEM', 'STATUS NO SIGEM', 'SITUACAO NO SIGEM'],
+    required: [['STATUS', 'SITUACAO'], ['SIGEM']],
+    optional: ['NO'],
+    forbidden: ['CONFERENCIA', 'DATA'],
   };
 
   /**
    * A aba de CV (currículos) da LD lista os mesmos documentos controlados por
-   * GRDT, mas rotula a coluna do documento com o vocabulário de currículo
-   * ("CV", "Currículo", "Código do CV"). O campo herda tudo do documento comum
-   * e apenas acrescenta essas grafias — mantê-lo separado evita que uma coluna
-   * auxiliar chamada "CV" na aba de documentos concorra com "DOCUMENTO".
+   * GRDT, mas rotula a coluna do documento com o vocabulário de currículo.
    */
   FIELDS.documentCv = {
     label: 'Documento / CV',
@@ -165,18 +227,8 @@
     ],
     required: [
       [
-        'DOCUMENTO',
-        'DOCUMENTOS',
-        'DOC',
-        'CODIGO',
-        'COD',
-        'CV',
-        'CVS',
-        'CURRICULO',
-        'CURRICULOS',
-        'CURRICULUM',
-        'CURRICULA',
-        'VITAE',
+        'DOCUMENTO', 'DOCUMENTOS', 'DOC', 'CODIGO', 'COD', 'CV', 'CVS',
+        'CURRICULO', 'CURRICULOS', 'CURRICULUM', 'CURRICULA', 'VITAE',
       ],
     ],
     optional: ['CODIGO', 'COD', 'NUMERO', 'N', 'NOME', 'CV', 'CURRICULO', 'CURRICULOS', 'DOCUMENTO'],
@@ -192,10 +244,7 @@
     field.optionalSet = new Set(field.optional);
   }
 
-  /**
-   * Pontua o quanto `text` representa `kind`, de 0 (não é) a 100 (grafia
-   * canônica). Valores >= 55 são considerados correspondência utilizável.
-   */
+  /** Pontua o quanto `text` representa `kind`, de 0 a 100. */
   function scoreHeader(kind, text) {
     const field = FIELDS[kind];
     if (!field) return 0;
@@ -210,14 +259,12 @@
       if (field.forbiddenSet.has(token)) return 0;
     }
 
-    // Mesmo conjunto de palavras significativas, ordem/ligação diferentes.
     if (field.tokenSetIndex.has(tokens.slice().sort().join(' '))) return 95;
 
     for (const group of field.required) {
       if (!group.some((token) => tokens.includes(token))) return 0;
     }
 
-    // Todos os requisitos batem: pontua pela densidade de palavras úteis.
     const useful = tokens.filter(
       (token) => field.optionalSet.has(token) || field.required.some((group) => group.includes(token))
     ).length;
@@ -225,7 +272,6 @@
     return Math.max(55, 88 - noise * 8);
   }
 
-  /** Compatibilidade e uso na UI: o cabeçalho é o da data de postagem? */
   function isPostingDateHeader(text) {
     return scoreHeader('datePosting', text) >= 55;
   }
@@ -234,26 +280,28 @@
     return scoreHeader('dateEffective', text) >= 55;
   }
 
-  /** A coluna de data reconhecida na própria Relação GRCON (postagem OU efetiva). */
   function isRelationDateHeader(text) {
     return scoreHeader('relationDate', text) >= 55;
   }
 
+  function isConferenceDateHeader(text) {
+    return scoreHeader('conferenceDate', text) >= 55;
+  }
+
   const PROFILES = {
     relation: { document: 'document', grdt: 'grdt', date: 'relationDate', revision: 'revision' },
+    relationConference: {
+      document: 'document',
+      grdt: 'grdt',
+      date: 'conferenceDate',
+      revision: 'revisionSent',
+      conference: 'conferenceStatus',
+      sigemStatus: 'sigemStatus',
+    },
     ld: { document: 'document', grdt: 'grdt', date: 'dateEffective', revision: 'revision' },
-    // Mesmas regras da LD; só o reconhecimento da coluna de documento é mais
-    // largo, para cobrir o vocabulário da aba de currículos.
     ldCv: { document: 'documentCv', grdt: 'grdt', date: 'dateEffective', revision: 'revision' },
   };
 
-  /**
-   * Papéis de aba reconhecidos pelo nome. A LD costuma trazer a lista de
-   * documentos em uma aba e os currículos (CV) em outra — as duas precisam ser
-   * atualizadas, então o nome da aba é usado apenas para *classificar*, nunca
-   * para decidir sozinho: a detecção de cabeçalho continua sendo a palavra
-   * final sobre o que é atualizável.
-   */
   const SHEET_ROLES = {
     cv: {
       label: 'CV (currículos)',
@@ -269,11 +317,6 @@
 
   for (const role of Object.values(SHEET_ROLES)) role.tokenSet = new Set(role.tokens);
 
-  /**
-   * Classifica uma aba pelo nome: 'cv', 'documentos' ou null (indefinida).
-   * "CV", "CVs", "CV - Currículos", "Currículos" e "Curriculum Vitae" caem
-   * todas em 'cv'; caixa, acento e pontuação não importam.
-   */
   function classifySheet(name) {
     const tokens = headerTokens(name);
     if (!tokens.length) return null;
@@ -282,31 +325,23 @@
     return null;
   }
 
-  /** Rótulo curto do papel, para a interface e a auditoria. */
   function sheetRoleLabel(role) {
     return SHEET_ROLES[role] ? SHEET_ROLES[role].label : '';
   }
 
-  /** Perfil de detecção adequado ao papel da aba dentro do perfil do arquivo. */
   function profileForSheet(profile, role) {
     return profile === 'ld' && role === 'cv' ? 'ldCv' : profile || 'ld';
   }
 
-  // Revisão é opcional: nem toda LD/Relação tem essa coluna, então ela entra
-  // na varredura (ajuda a achar a linha de cabeçalho certa quando presente)
-  // mas não participa do cálculo de confiança — a ausência dela não pode
-  // rebaixar "alta" para "média" quando os três campos obrigatórios batem.
   const CORE_SLOTS = ['document', 'grdt', 'date'];
-  const WEIGHTS = { document: 1.4, grdt: 1.0, date: 1.2, revision: 0.6 };
+  const WEIGHTS = { document: 1.4, grdt: 1.0, date: 1.2, revision: 0.7, conference: 1.4, sigemStatus: 0.35 };
   const MAX_HEADER_SCAN_ROWS = 80;
   const MAX_HEADER_SCAN_COLS = 200;
 
   /**
    * Varre as primeiras linhas procurando a combinação (linha, colunas) com
-   * maior pontuação agregada. Funciona com planilhas que trazem título,
-   * logotipo ou linhas em branco antes do cabeçalho real.
-   *
-   * @param {(row:number, col:number) => string} getValue
+   * maior pontuação agregada. Funciona com título, logotipo e linhas vazias
+   * antes do cabeçalho real e não depende da posição física das colunas.
    */
   function detect(getValue, maxRow, maxCol, profile) {
     const fields = PROFILES[profile] || PROFILES.ld;
@@ -332,10 +367,8 @@
         }
       }
 
-      for (const [slot, score] of Object.entries(scores)) total += score * WEIGHTS[slot];
-      // Desempate: cabeçalhos mais altos na planilha são mais prováveis.
+      for (const [slot, score] of Object.entries(scores)) total += score * (WEIGHTS[slot] || 0.5);
       total -= row * 0.01;
-
       if (total > best.score) best = { headerRow: row, score: total, columns, scores };
     }
 
@@ -346,10 +379,56 @@
       grdtCol: best.columns.grdt || null,
       dateCol: best.columns.date || null,
       revisionCol: best.columns.revision || null,
+      conferenceCol: best.columns.conference || null,
+      sigemStatusCol: best.columns.sigemStatus || null,
+      columns: { ...best.columns },
       fieldScores: best.scores,
       score: best.score,
       matchedFields: found,
       confidence: found === 3 ? 'alta' : found === 2 ? 'media' : 'baixa',
+    };
+  }
+
+  /**
+   * Decide automaticamente qual das duas relações do GRCON foi carregada.
+   * A assinatura da Conferência exige os campos exclusivos desse relatório;
+   * isso evita classificar um Histórico comum como Conferência por acidente.
+   */
+  function detectRelation(getValue, maxRow, maxCol) {
+    const history = detect(getValue, maxRow, maxCol, 'relation');
+    const conference = detect(getValue, maxRow, maxCol, 'relationConference');
+
+    const conferenceSignature = !!(
+      conference.documentCol &&
+      conference.grdtCol &&
+      conference.conferenceCol &&
+      (conference.revisionCol || conference.dateCol)
+    );
+
+    if (conferenceSignature) {
+      const required = [
+        conference.documentCol,
+        conference.grdtCol,
+        conference.dateCol,
+        conference.revisionCol,
+        conference.conferenceCol,
+      ].filter(Boolean).length;
+      return {
+        ...conference,
+        relationType: 'conference',
+        sourceLabel: 'Conferência Histórico × Consulta Geral',
+        sourceShortLabel: 'Conferência',
+        sourceDateLabel: 'Data efetiva / confirmação',
+        confidence: required === 5 ? 'alta' : required >= 4 ? 'media' : 'baixa',
+      };
+    }
+
+    return {
+      ...history,
+      relationType: 'history',
+      sourceLabel: 'Histórico GRCON',
+      sourceShortLabel: 'Histórico',
+      sourceDateLabel: 'Data da geração / postagem',
     };
   }
 
@@ -359,11 +438,13 @@
     PROFILES,
     scoreHeader,
     detect,
+    detectRelation,
     classifySheet,
     sheetRoleLabel,
     profileForSheet,
     isPostingDateHeader,
     isEffectiveDateHeader,
     isRelationDateHeader,
+    isConferenceDateHeader,
   };
 })(typeof self !== 'undefined' ? self : this);
