@@ -1,0 +1,30 @@
+name: Feature conference validation
+
+on:
+  push:
+    branches:
+      - feature/conferencia-grcon-sigem
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Node version
+        run: node --version
+      - name: Syntax check
+        run: |
+          node --check src/core/headers.js
+          node --check src/core/indexer.js
+          node --check src/core/tasks.js
+          node --check src/core/engine.js
+          node --check src/ui/conference-source.js
+          node --check tests/conference-relation.js
+      - name: Existing regression suite
+        run: node tests/run.js
+      - name: Conference relation suite
+        run: node tests/conference-relation.js
+      - name: Volume benchmark
+        run: node tests/bench.js
