@@ -1,5 +1,41 @@
 # Changelog
 
+## 2.2.0
+
+O Vincula passa a aceitar automaticamente **duas fontes do GRCON** na mesma área de importação:
+
+- Histórico normal do GRCON, preservando integralmente o comportamento legado;
+- Conferência Histórico × Consulta Geral, usando somente informações cuja postagem foi efetivamente confirmada pela conferência com o SIGEM.
+
+### Conferência Histórico × Consulta Geral
+
+- O tipo de relação é detectado pelos cabeçalhos, sem depender da posição das colunas.
+- O relatório atual do GRCON é reconhecido pelos campos `Código`, `eGRDT`, `Revisão enviada`, `Conferência`, `Status SIGEM` e `Data da confirmação`.
+- Também são aceitos aliases seguros como `Revisão enviada na GRDT`, `Número da eGRDT` e `Data Efetiva de Emissão`, tolerando caixa, acentos e espaços sem usar correspondências genéricas demais.
+- `Revisão enviada` é a revisão levada para a LD; `Revisão encontrada` não é confundida com ela.
+- O número da GRDT/eGRDT é preservado integralmente como aparece no relatório.
+- A data confirmada aceita tanto o cabeçalho atual `Data da confirmação` quanto `Data Efetiva de Emissão`; data+hora é convertida para a data civil que deve ser gravada na LD.
+
+### Regra de postagem confirmada
+
+- Somente linhas cuja coluna `Conferência` esteja explicitamente como `Postado` ou `Confirmado` entram no índice que pode atualizar uma LD.
+- `Não postado ainda`, `Revisão divergente` e demais estados não confirmados continuam disponíveis para auditoria, mas não alteram a LD.
+- `Status SIGEM` é informativo e nunca é usado sozinho como prova de postagem. Assim, por exemplo, um documento `Não postado ainda` com status SIGEM `Em Análise` continua sem autorização para atualizar a LD.
+- Datas inválidas existentes em linhas não confirmadas não contaminam a lista de pendências de atualização, pois essas linhas não são elegíveis à escrita.
+
+### Interface, validação e auditoria
+
+- A tela de upload informa que aceita os dois formatos e mostra a fonte identificada após a leitura.
+- Quando a fonte é a Conferência, a associação de colunas apresenta `Revisão enviada na GRDT`, `Data efetiva / confirmação`, `Conferência / postagem confirmada` e `Status SIGEM`.
+- Colunas obrigatórias ausentes geram mensagens específicas em vez de apenas `Arquivo inválido`.
+- O resumo/auditoria registra a fonte identificada, quantidade total de linhas da Conferência, confirmações utilizadas e linhas não confirmadas ignoradas.
+
+### Testes
+
+- 262/262 verificações da suíte legada aprovadas, sem regressões.
+- 40/40 verificações novas para a Conferência: formato atual do GRCON, cabeçalhos reordenados, aliases, revisão enviada, eGRDT completa, data com hora, não postado, revisão divergente, coluna obrigatória ausente e lote de 6.000 linhas.
+- Benchmark existente: 21.000 documentos em 100 LDs, 100/100 arquivos com integridade aprovada e pipeline completo em 8,9 s no runner de CI.
+
 ## 2.1.1
 
 ### A Data Efetiva de Emissão volta a ser só data
@@ -111,8 +147,8 @@ rejeitado por engano.
   igualdade exata falha, o Vincula tenta de novo ignorando zero à esquerda, espaço e traço, e
   preenche automaticamente quando existe exatamente um documento candidato.
 - A segurança não mudou: se a mesma chave aproximada apontar para dois documentos diferentes
-  na LD, o sistema não escolhe sozinho — fica como não encontrado, com o motivo explicando a
-  ambiguidade, exatamente como antes.
+  na LD, o sistema não escolhe sozinho — fica como não encontrado e explica a ambiguidade no motivo, para nunca gravar no
+  documento errado silenciosamente.
 - A caixa de marcação foi removida da Etapa 2. O painel de diagnóstico (Etapa 3) foi reescrito
   para refletir que a busca ampliada já é automática.
 
