@@ -27,17 +27,9 @@
   const HEADER_SCAN_COLS = 200;
   const MAX_GRID_CELLS = 8000;
 
-  // Uma LD pode trazer mais de uma aba atualizável — tipicamente a lista de
-  // documentos e a aba de CV (currículos). Todas as abas da LD são amostradas
-  // para que nenhuma fique de fora; o teto existe só para conter o custo em
-  // pastas de trabalho com dezenas de abas auxiliares.
   const MAX_LD_SHEETS_SCANNED = 24;
   const MAX_LD_TARGETS = 8;
 
-  // A amostra completa fica no worker (é o que alimenta a detecção). Para a
-  // página vai só o recorte que os seletores de mapeamento precisam — com 100
-  // LDs abertas, enviar a amostra inteira de cada arquivo custaria dezenas de
-  // megabytes de estruturas vivas na thread da interface.
   const PAYLOAD_ROWS = 40;
   const PAYLOAD_COLS = 80;
   const PAYLOAD_MAX_CELLS = 1500;
@@ -62,7 +54,17 @@
   }
 
   function mappingKey(mapping) {
-    return [mapping.sheetPath, mapping.headerRow, mapping.documentCol, mapping.grdtCol, mapping.dateCol, mapping.revisionCol].join('|');
+    return [
+      mapping.sheetPath,
+      mapping.headerRow,
+      mapping.documentCol,
+      mapping.grdtCol,
+      mapping.dateCol,
+      mapping.revisionCol,
+      mapping.conferenceCol,
+      mapping.sigemStatusCol,
+      mapping.relationType,
+    ].join('|');
   }
 
   function entryOf(fileId) {
@@ -102,16 +104,14 @@
   }
 
   function detectFromGrid(grid, profile) {
-    return V.headers.detect(gridLookup(grid), Math.min(grid.maxRow, HEADER_SCAN_ROWS), grid.maxCol, profile);
+    const lookup = gridLookup(grid);
+    const maxRow = Math.min(grid.maxRow, HEADER_SCAN_ROWS);
+    if (profile === 'relation') return V.headers.detectRelation(lookup, maxRow, grid.maxCol);
+    return V.headers.detect(lookup, maxRow, grid.maxCol, profile);
   }
 
   /* ------------------------------------------------------------------ *
    * Alvos de atualização
-   *
-   * Um alvo é uma aba mapeada: aba + linha de cabeçalho + colunas. A Relação
-   * GRCON tem sempre um único alvo; a LD pode ter mais de um — a lista de
-   * documentos e a aba de CV (currículos) são o caso corrente, e as duas
-   * precisam ser atualizadas na mesma passada.
    * ------------------------------------------------------------------ */
 
   function toMapping(info, detected, extra) {
@@ -123,22 +123,21 @@
       grdtCol: detected ? detected.grdtCol : null,
       dateCol: detected ? detected.dateCol : null,
       revisionCol: detected ? detected.revisionCol : null,
+      conferenceCol: detected ? detected.conferenceCol : null,
+      sigemStatusCol: detected ? detected.sigemStatusCol : null,
+      relationType: detected && detected.relationType ? detected.relationType : null,
+      sourceLabel: detected && detected.sourceLabel ? detected.sourceLabel : '',
+      sourceShortLabel: detected && detected.sourceShortLabel ? detected.sourceShortLabel : '',
+      sourceDateLabel: detected && detected.sourceDateLabel ? detected.sourceDateLabel : '',
       confidence: detected ? detected.confidence : 'baixa',
       fieldScores: detected ? detected.fieldScores : {},
       role: info.role || null,
-      roleLabel: V.headers.sheetRoleLabel(info.role),
+      roleLabel: detected && detected.sourceLabel ? detected.sourceLabel : V.headers.sheetRoleLabel(info.role),
       hidden: !!info.hidden,
       ...extra,
     };
   }
 
-  /**
-   * Uma aba secundária só entra sozinha como alvo quando o cabeçalho resolve
-   * os três campos obrigatórios (documento, GRDT e data). A aba de CV é a
-   * única exceção controlada: identificada pelo nome, basta ter a coluna de
-   * documento e ao menos um campo gravável para ser proposta — é comum que a
-   * lista de currículos não repita todas as colunas da aba de documentos.
-   */
   function isUpdatableTarget(detected, role) {
     if (!detected || !detected.documentCol) return false;
     if (detected.matchedFields === 3) return true;
@@ -154,8 +153,6 @@
       if (info.path === primary.sheetPath || !info.detected) continue;
       if (!isUpdatableTarget(info.detected, info.role)) continue;
       if (targets.length >= MAX_LD_TARGETS) break;
-      // Aba oculta entra na lista, porém desmarcada: gravar em algo que o
-      // usuário não vê precisa ser uma decisão dele, nunca um efeito colateral.
       targets.push(toMapping(info, info.detected, { primary: false, enabled: !info.hidden }));
     }
     return targets;
@@ -169,7 +166,6 @@
     const fingerprint = `${hash}|${name}|${profile}`;
     const cachedId = fingerprints.get(fingerprint);
     if (cachedId && registry.has(cachedId)) {
-      // Mesmo conteúdo já indexado nesta sessão: nada é reprocessado.
       const cached = registry.get(cachedId);
       registry.set(fileId, cached);
       return { ...toPayloadMeta(cached.meta), fileId, fromCache: true };
@@ -199,10 +195,6 @@
       };
       sheets.push(info);
 
-      // Na LD, toda aba é amostrada: a lista de documentos e a de CV
-      // (currículos) são atualizadas juntas, e só a varredura revela quais
-      // abas têm cabeçalho utilizável. Na Relação, uma única aba é usada —
-      // então a decodificação para assim que uma resolve os três campos.
       if (profile !== 'ld' && suggestion && suggestion.confidence === 'alta') continue;
       if (scannedCount >= MAX_LD_SHEETS_SCANNED) continue;
 
@@ -226,15 +218,19 @@
     }
 
     const mappings = buildTargets(sheets, profile, suggestionSheet || sheets[0], suggestion);
+    const primary = mappings[0];
 
     const meta = {
       fileId,
       name,
       hash,
       profile,
+      relationType: profile === 'relation' ? primary.relationType || 'history' : null,
+      sourceLabel: profile === 'relation' ? primary.sourceLabel || 'Histórico GRCON' : '',
+      sourceShortLabel: profile === 'relation' ? primary.sourceShortLabel || 'Histórico' : '',
       date1904: wb.date1904,
       sheets,
-      mapping: mappings[0],
+      mapping: primary,
       mappings,
     };
 
@@ -249,7 +245,6 @@
     const entry = entryOf(fileId);
     const info = entry.meta.sheets.find((s) => s.path === sheetPath);
     if (!info) throw new Error('Aba não encontrada: ' + sheetPath);
-    // A aba de CV é reconhecida pelo nome e detectada com o perfil próprio.
     const sheetProfile = V.headers.profileForSheet(profile || entry.profile, info.role);
 
     if (info.scanned) {
@@ -282,7 +277,7 @@
       sheetPath,
       role: info.role,
       roleLabel: info.roleLabel,
-      grid: toPayloadGrid(grid),
+      grid: toPayloadGrid(info.grid),
       maxRow: info.maxRow,
       maxCol: info.maxCol,
       detected,
@@ -311,34 +306,59 @@
     const sheet = X.findSheet(entry.wb, mapping.sheetPath) || X.findSheet(entry.wb, mapping.sheetName);
     if (!sheet) throw new Error(`Aba "${mapping.sheetName || mapping.sheetPath}" não encontrada em ${entry.name}.`);
     const xml = await X.readSheetXml(entry.wb, sheet);
-    const model = X.scanSheet(entry.wb, xml, {
-      columns: [Number(mapping.documentCol), Number(mapping.grdtCol), Number(mapping.dateCol), Number(mapping.revisionCol)],
-    });
+    const columns = [
+      mapping.documentCol,
+      mapping.grdtCol,
+      mapping.dateCol,
+      mapping.revisionCol,
+      mapping.conferenceCol,
+      mapping.sigemStatusCol,
+    ]
+      .map(Number)
+      .filter((value, index, list) => Number.isFinite(value) && value > 0 && list.indexOf(value) === index);
+    const model = X.scanSheet(entry.wb, xml, { columns });
     try {
       return await fn(sheet, model);
     } finally {
-      // Libera o maior consumidor de memória assim que a etapa termina.
       model.cells.clear();
       model.rows.clear();
       model.xml = '';
     }
   }
 
-  /**
-   * Confere se a coluna de data associada à relação é reconhecível como a
-   * data-fonte do documento — aceita tanto "geração/postagem" quanto
-   * "efetiva de emissão", já que exports diferentes de GRCON rotulam essa
-   * mesma coluna de formas diferentes.
-   */
+  /** Confere se a coluna de data corresponde ao tipo de relação identificado. */
   function validatePostingHeader(entry, mapping) {
     const info = entry.meta.sheets.find((s) => s.path === mapping.sheetPath);
-    if (!info || !info.grid) return { ok: true, header: '' };
+    if (!info || !info.grid || !mapping.dateCol) return { ok: false, header: '' };
     const header = gridLookup(info.grid)(Number(mapping.headerRow), Number(mapping.dateCol));
-    return { ok: V.headers.isRelationDateHeader(header), header: normalizeHeader(header) };
+    const ok = mapping.relationType === 'conference'
+      ? V.headers.isConferenceDateHeader(header)
+      : V.headers.isRelationDateHeader(header);
+    return { ok, header: normalizeHeader(header) };
+  }
+
+  function validateConferenceMapping(mapping) {
+    if (mapping.relationType !== 'conference') return;
+    if (!mapping.documentCol) {
+      throw new Error('Não foi possível identificar a coluna “Código/Documento” na planilha de Conferência Histórico × Consulta Geral.');
+    }
+    if (!mapping.grdtCol) {
+      throw new Error('Não foi possível identificar a coluna “Número da GRDT/eGRDT” na planilha de Conferência Histórico × Consulta Geral.');
+    }
+    if (!mapping.revisionCol) {
+      throw new Error('Não foi possível identificar a coluna “Revisão enviada na GRDT” na planilha de Conferência Histórico × Consulta Geral.');
+    }
+    if (!mapping.dateCol) {
+      throw new Error('Não foi possível identificar “Data Efetiva de Emissão” ou “Data da confirmação” na planilha de Conferência Histórico × Consulta Geral.');
+    }
+    if (!mapping.conferenceCol) {
+      throw new Error('Não foi possível identificar a coluna “Conferência”, necessária para determinar se a postagem foi confirmada no SIGEM.');
+    }
   }
 
   async function indexRelation({ fileId, mapping }, report) {
     const entry = entryOf(fileId);
+    validateConferenceMapping(mapping);
     const key = 'rel:' + mappingKey(mapping);
     if (entry.indexes.has(key)) return { ...entry.indexes.get(key), fromCache: true };
 
@@ -346,17 +366,25 @@
     const check = validatePostingHeader(entry, mapping);
     const result = await withModel(entry, mapping, async (sheet, model) => {
       const index = V.indexer.buildRelationIndex(entry.wb, model, mapping);
+      const dateKind = mapping.relationType === 'conference'
+        ? 'Data Efetiva de Emissão / Data da confirmação'
+        : 'data da Relação GRCON (postagem/geração ou efetiva de emissão)';
       return {
         fileId,
         name: entry.name,
         sheetName: sheet.name,
-        headerWarning: check.ok ? null : `A coluna de data associada ("${check.header}") não é reconhecida como data da Relação GRCON (postagem/geração ou efetiva de emissão).`,
+        relationType: mapping.relationType || 'history',
+        sourceLabel: mapping.sourceLabel || (mapping.relationType === 'conference' ? 'Conferência Histórico × Consulta Geral' : 'Histórico GRCON'),
+        headerWarning: check.ok ? null : `A coluna de data associada ("${check.header}") não é reconhecida como ${dateKind}.`,
         rows: index.rows,
+        eligibleRows: index.eligibleRows,
+        excludedRows: index.excludedRows,
         selected: index.selected,
         duplicates: index.duplicates,
         totalRows: index.totalRows,
         uniqueDocuments: index.uniqueDocuments,
         invalidDates: index.invalidDates,
+        conferenceStats: index.conferenceStats,
       };
     });
     entry.indexes.set(key, result);
@@ -396,11 +424,6 @@
     return list;
   }
 
-  /**
-   * Distribui os itens do plano entre as abas. Um item que aponta para uma aba
-   * que não está entre os alvos habilitados é descartado, nunca redirecionado:
-   * a mesma linha em outra aba é outro documento.
-   */
   function groupPlanBySheet(plan, targets) {
     const groups = new Map(targets.map((target) => [target.sheetPath, []]));
     const discarded = [];
@@ -430,11 +453,7 @@
     return merged;
   }
 
-  /**
-   * Atualiza todas as abas mapeadas do arquivo e fecha o pacote uma única vez.
-   * Se qualquer aba reprovar na auditoria de integridade, nada é gravado: o
-   * arquivo gerado nunca mistura uma aba nova com outra revertida.
-   */
+  /** Atualiza todas as abas mapeadas do arquivo e fecha o pacote uma única vez. */
   async function apply({ fileId, mapping, mappings, plan, options }, report) {
     const entry = entryOf(fileId);
     const targets = resolveTargets({ mapping, mappings });
@@ -446,7 +465,6 @@
 
     for (const target of targets) {
       const items = groups.get(target.sheetPath) || [];
-      // Aba sem nada a gravar não é reaberta: poupa a leitura do XML inteiro.
       if (!items.length) continue;
       const result = await withModel(entry, target, (sheet, model) =>
         V.applier.applySheetPlan(entry.wb, sheet, model, target, items, options || {})
@@ -481,7 +499,6 @@
     }));
 
     if (failure) {
-      // Rollback total: as emendas de todas as abas são descartadas juntas.
       V.applier.rollback(entry.wb);
       return {
         ok: false,
@@ -539,7 +556,6 @@
     const entry = registry.get(fileId);
     if (!entry) return { released: false };
     registry.delete(fileId);
-    // Só descarta o ZIP quando nenhum outro id aponta para a mesma entrada.
     for (const other of registry.values()) if (other === entry) return { released: true, shared: true };
     for (const [fingerprint, id] of fingerprints) if (id === fileId) fingerprints.delete(fingerprint);
     if (entry.wb) X.close(entry.wb);
