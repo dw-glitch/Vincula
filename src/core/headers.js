@@ -73,10 +73,13 @@
         'DT EFETIVA DE EMISSAO',
         'DT EFETIVA EMISSAO',
         'DATA EMISSAO EFETIVA',
+        'DATA DE EMISSAO',
+        'DATA DA EMISSAO',
+        'DATA EMISSAO',
       ],
       required: [['DATA', 'DT'], ['EFETIVA', 'EFETIVO', 'EMISSAO']],
       optional: ['EMISSAO', 'EFETIVA'],
-      forbidden: ['GERACAO', 'POSTAGEM', 'ENVIO', 'RECEBIMENTO', 'VENCIMENTO', 'PREVISTA'],
+      forbidden: ['GERACAO', 'POSTAGEM', 'ENVIO', 'RECEBIMENTO', 'VENCIMENTO', 'PREVISTA', 'GRDT', 'EGRDT'],
     },
     datePosting: {
       label: 'Data da Geração / Postagem',
@@ -96,6 +99,24 @@
       required: [['DATA', 'DT'], ['GERACAO', 'POSTAGEM']],
       optional: ['GERACAO', 'POSTAGEM'],
       forbidden: ['EFETIVA', 'CONFIRMACAO', 'VENCIMENTO'],
+    },
+    dateGrdt: {
+      label: 'Data da GRDT / eGRDT',
+      exact: [
+        'DATA EGRDT',
+        'DATA E GRDT',
+        'DATA DA EGRDT',
+        'DATA DA GRDT',
+        'DATA GRDT',
+        'DATA DE GRDT',
+        'DATA DE EMISSAO GRDT',
+        'DATA EMISSAO GRDT',
+        'DT EGRDT',
+        'DT GRDT',
+      ],
+      required: [['DATA', 'DT'], ['GRDT', 'EGRDT']],
+      optional: ['GRDT', 'EGRDT', 'EMISSAO'],
+      forbidden: ['EFETIVA', 'CONFIRMACAO', 'GERACAO', 'POSTAGEM', 'VENCIMENTO', 'PREVISTA'],
     },
     revision: {
       label: 'Revisão',
@@ -121,15 +142,15 @@
   };
 
   /**
-   * A Relação GRCON histórica nem sempre rotula sua própria coluna de data
-   * como "geração/postagem" — alguns exports já chamam essa coluna de
-   * "Data Efetiva de Emissão". Este campo cobre apenas o formato legado.
+   * A Relação GRCON histórica aceita a data de geração/postagem, a data
+   * efetiva usada por exports antigos e também DATA EGRDT. No Histórico,
+   * todas são alternativas legadas válidas para a única coluna de data.
    */
   FIELDS.relationDate = {
     label: 'Data (Histórico GRCON)',
-    exact: [...FIELDS.datePosting.exact, ...FIELDS.dateEffective.exact],
-    required: [['DATA', 'DT'], ['GERACAO', 'POSTAGEM', 'EFETIVA', 'EFETIVO', 'EMISSAO']],
-    optional: ['GERACAO', 'POSTAGEM', 'EFETIVA', 'EMISSAO'],
+    exact: [...FIELDS.datePosting.exact, ...FIELDS.dateEffective.exact, ...FIELDS.dateGrdt.exact],
+    required: [['DATA', 'DT'], ['GERACAO', 'POSTAGEM', 'EFETIVA', 'EFETIVO', 'EMISSAO', 'GRDT', 'EGRDT']],
+    optional: ['GERACAO', 'POSTAGEM', 'EFETIVA', 'EMISSAO', 'GRDT', 'EGRDT'],
     forbidden: ['CONFIRMACAO', 'VENCIMENTO', 'PREVISTA', 'RECEBIMENTO', 'ENVIO'],
   };
 
@@ -152,9 +173,8 @@
 
   /**
    * Data confirmada usada pela Conferência Histórico × Consulta Geral.
-   * O relatório atual do GRCON exporta "Data da confirmação"; se uma versão
-   * futura expuser diretamente "Data Efetiva de Emissão", ela tem a mesma
-   * finalidade interna no Vincula e também é reconhecida.
+   * Nunca inclui DATA EGRDT: quando as duas existem, a efetiva/confirmação
+   * deve vencer e a data da GRDT permanece em um campo separado.
    */
   FIELDS.conferenceDate = {
     label: 'Data Efetiva de Emissão / Data da confirmação',
@@ -170,7 +190,7 @@
     ],
     required: [['DATA', 'DT', 'PRIMEIRA'], ['EFETIVA', 'EFETIVO', 'EMISSAO', 'CONFIRMACAO']],
     optional: ['EFETIVA', 'EMISSAO', 'CONFIRMACAO', 'PRIMEIRA'],
-    forbidden: ['GERACAO', 'POSTAGEM', 'ULTIMA', 'VENCIMENTO', 'PREVISTA', 'ENVIO'],
+    forbidden: ['GERACAO', 'POSTAGEM', 'ULTIMA', 'VENCIMENTO', 'PREVISTA', 'ENVIO', 'GRDT', 'EGRDT'],
   };
 
   /** Resultado da comparação que diz se a postagem foi realmente confirmada. */
@@ -280,6 +300,10 @@
     return scoreHeader('dateEffective', text) >= 55;
   }
 
+  function isGrdtDateHeader(text) {
+    return scoreHeader('dateGrdt', text) >= 55;
+  }
+
   function isRelationDateHeader(text) {
     return scoreHeader('relationDate', text) >= 55;
   }
@@ -289,11 +313,18 @@
   }
 
   const PROFILES = {
-    relation: { document: 'document', grdt: 'grdt', date: 'relationDate', revision: 'revision' },
+    relation: {
+      document: 'document',
+      grdt: 'grdt',
+      date: 'relationDate',
+      dateGrdt: 'dateGrdt',
+      revision: 'revision',
+    },
     relationConference: {
       document: 'document',
       grdt: 'grdt',
       date: 'conferenceDate',
+      dateGrdt: 'dateGrdt',
       revision: 'revisionSent',
       conference: 'conferenceStatus',
       sigemStatus: 'sigemStatus',
@@ -334,7 +365,15 @@
   }
 
   const CORE_SLOTS = ['document', 'grdt', 'date'];
-  const WEIGHTS = { document: 1.4, grdt: 1.0, date: 1.2, revision: 0.7, conference: 1.4, sigemStatus: 0.35 };
+  const WEIGHTS = {
+    document: 1.4,
+    grdt: 1.0,
+    date: 1.2,
+    dateGrdt: 0.35,
+    revision: 0.7,
+    conference: 1.4,
+    sigemStatus: 0.35,
+  };
   const MAX_HEADER_SCAN_ROWS = 80;
   const MAX_HEADER_SCAN_COLS = 200;
 
@@ -378,6 +417,8 @@
       documentCol: best.columns.document || null,
       grdtCol: best.columns.grdt || null,
       dateCol: best.columns.date || null,
+      dateEffectiveCol: best.columns.date || null,
+      dateGrdtCol: best.columns.dateGrdt || null,
       revisionCol: best.columns.revision || null,
       conferenceCol: best.columns.conference || null,
       sigemStatusCol: best.columns.sigemStatus || null,
@@ -402,29 +443,43 @@
       conference.documentCol &&
       conference.grdtCol &&
       conference.conferenceCol &&
-      (conference.revisionCol || conference.dateCol)
+      (conference.revisionCol || conference.dateCol || conference.dateGrdtCol)
     );
 
     if (conferenceSignature) {
+      const dateEffectiveCol = conference.dateCol || null;
+      const dateGrdtCol = conference.dateGrdtCol || null;
+      const resolvedDateCol = dateEffectiveCol || dateGrdtCol || null;
       const required = [
         conference.documentCol,
         conference.grdtCol,
-        conference.dateCol,
+        resolvedDateCol,
         conference.revisionCol,
         conference.conferenceCol,
       ].filter(Boolean).length;
       return {
         ...conference,
+        dateCol: resolvedDateCol,
+        dateEffectiveCol,
+        dateGrdtCol,
+        dateFallback: !dateEffectiveCol && !!dateGrdtCol,
         relationType: 'conference',
         sourceLabel: 'Conferência Histórico × Consulta Geral',
         sourceShortLabel: 'Conferência',
-        sourceDateLabel: 'Data efetiva / confirmação',
+        sourceDateLabel: dateEffectiveCol
+          ? 'Data efetiva / confirmação'
+          : dateGrdtCol
+            ? 'Data da GRDT (fallback legado)'
+            : 'Data efetiva / confirmação',
         confidence: required === 5 ? 'alta' : required >= 4 ? 'media' : 'baixa',
       };
     }
 
     return {
       ...history,
+      dateEffectiveCol: null,
+      dateGrdtCol: history.dateGrdtCol || (history.dateCol && isGrdtDateHeader(getValue(history.headerRow, history.dateCol)) ? history.dateCol : null),
+      dateFallback: false,
       relationType: 'history',
       sourceLabel: 'Histórico GRCON',
       sourceShortLabel: 'Histórico',
@@ -444,6 +499,7 @@
     profileForSheet,
     isPostingDateHeader,
     isEffectiveDateHeader,
+    isGrdtDateHeader,
     isRelationDateHeader,
     isConferenceDateHeader,
   };
