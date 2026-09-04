@@ -35,6 +35,24 @@
     return CONFIRMED_CONFERENCE.has(normalizeHeader(value));
   }
 
+  function readDateInfo(wb, cell) {
+    const raw = cell
+      ? cell.isDate
+        ? X.cellDisplay(cell)
+        : squash(cell.value !== '' ? cell.value : cell.numeric)
+      : '';
+    const parsed = cell && cell.numeric !== null && cell.isDate
+      ? D.serialToDate(D.truncateSerial(cell.numeric), wb.date1904)
+      : D.parseDate(raw, wb.date1904);
+    const valid = !!parsed && !D.isBlankDateToken(raw);
+    return {
+      raw,
+      valid,
+      iso: valid ? D.formatIsoDate(parsed) : null,
+      text: valid ? D.formatDate(parsed) : '',
+    };
+  }
+
   /**
    * Índice da Relação GRCON.
    *
@@ -45,11 +63,18 @@
    * em `rows` para auditoria, mas SOMENTE linhas cuja coluna Conferência diga
    * explicitamente que a postagem foi confirmada entram em `selected` e podem
    * chegar à lógica de atualização das LDs.
+   *
+   * A data da GRDT e a data efetiva/confirmação são mantidas separadas. Quando
+   * as duas existem, somente a efetiva alimenta `dateText/dateIso`; DATA EGRDT
+   * permanece disponível em `dateGrdt*`. O fallback para DATA EGRDT só ocorre
+   * quando o relatório não possui coluna efetiva, preservando o fluxo legado.
    */
   function buildRelationIndex(wb, model, mapping) {
     const documentCol = Number(mapping.documentCol);
     const grdtCol = Number(mapping.grdtCol);
-    const dateCol = Number(mapping.dateCol);
+    const mappedDateCol = Number(mapping.dateCol) || null;
+    const dateEffectiveCol = Number(mapping.dateEffectiveCol) || null;
+    const dateGrdtCol = Number(mapping.dateGrdtCol) || null;
     const revisionCol = Number(mapping.revisionCol) || null;
     const conferenceCol = Number(mapping.conferenceCol) || null;
     const sigemStatusCol = Number(mapping.sigemStatusCol) || null;
@@ -68,22 +93,35 @@
       if (!document) continue;
 
       const grdtCell = X.getCell(model, row, grdtCol);
-      const dateCell = X.getCell(model, row, dateCol);
+      const mappedDateCell = mappedDateCol ? X.getCell(model, row, mappedDateCol) : null;
+      const effectiveDateCell = dateEffectiveCol ? X.getCell(model, row, dateEffectiveCol) : null;
+      const grdtDateCell = dateGrdtCol ? X.getCell(model, row, dateGrdtCol) : null;
       const revisionCell = revisionCol ? X.getCell(model, row, revisionCol) : null;
       const conferenceCell = conferenceCol ? X.getCell(model, row, conferenceCol) : null;
       const sigemStatusCell = sigemStatusCol ? X.getCell(model, row, sigemStatusCol) : null;
 
-      const sourceDateRaw = dateCell
-        ? dateCell.isDate
-          ? X.cellDisplay(dateCell)
-          : squash(dateCell.value !== '' ? dateCell.value : dateCell.numeric)
-        : '';
+      const effectiveDate = readDateInfo(wb, effectiveDateCell);
+      const grdtDate = readDateInfo(wb, grdtDateCell);
+      const mappedDate = readDateInfo(wb, mappedDateCell);
 
-      const parsed = dateCell && dateCell.numeric !== null && dateCell.isDate
-        ? D.serialToDate(D.truncateSerial(dateCell.numeric), wb.date1904)
-        : D.parseDate(sourceDateRaw, wb.date1904);
+      let selectedDate;
+      let dateSource;
+      if (relationType === 'conference') {
+        if (dateEffectiveCol) {
+          selectedDate = effectiveDate;
+          dateSource = 'effective';
+        } else if (dateGrdtCol || mapping.dateFallback) {
+          selectedDate = dateGrdtCol ? grdtDate : mappedDate;
+          dateSource = 'grdt-fallback';
+        } else {
+          selectedDate = mappedDate;
+          dateSource = 'conference-legacy';
+        }
+      } else {
+        selectedDate = mappedDateCol ? mappedDate : grdtDate;
+        dateSource = dateGrdtCol && mappedDateCol === dateGrdtCol ? 'grdt-legacy' : 'history';
+      }
 
-      const dateValid = !!parsed && !D.isBlankDateToken(sourceDateRaw);
       const conferenceStatus = conferenceCol ? X.cellDisplay(conferenceCell) : '';
       const sigemStatus = sigemStatusCol ? X.cellDisplay(sigemStatusCell) : '';
       const confirmedPost = relationType !== 'conference' || isConfirmedConferenceStatus(conferenceStatus);
@@ -98,10 +136,19 @@
         conferenceStatus,
         sigemStatus,
         confirmedPost,
-        sourceDateRaw,
-        dateIso: dateValid ? D.formatIsoDate(parsed) : null,
-        dateText: dateValid ? D.formatDate(parsed) : '',
-        dateValid,
+        dateSource,
+        sourceDateRaw: selectedDate.raw,
+        dateIso: selectedDate.iso,
+        dateText: selectedDate.text,
+        dateValid: selectedDate.valid,
+        dateEffectiveRaw: effectiveDate.raw,
+        dateEffectiveIso: effectiveDate.iso,
+        dateEffectiveText: effectiveDate.text,
+        dateEffectiveValid: effectiveDate.valid,
+        dateGrdtRaw: grdtDate.raw,
+        dateGrdtIso: grdtDate.iso,
+        dateGrdtText: grdtDate.text,
+        dateGrdtValid: grdtDate.valid,
       };
 
       rows.push(entry);
@@ -141,6 +188,9 @@
             revision: x.revision,
             dateText: x.dateText,
             dateValid: x.dateValid,
+            dateSource: x.dateSource,
+            dateEffectiveText: x.dateEffectiveText,
+            dateGrdtText: x.dateGrdtText,
             conferenceStatus: x.conferenceStatus,
           })),
         });
