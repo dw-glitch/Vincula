@@ -49,6 +49,11 @@
    * Ao trocar manualmente a aba, app.js reaplica os quatro campos legados.
    * Reconstituímos os metadados exclusivos da Conferência usando exatamente o
    * mesmo detector de cabeçalhos do motor, sem depender da posição da coluna.
+   *
+   * Importante: DATA EGRDT nunca substitui a Data Efetiva/Confirmação quando
+   * ambas existem. O primeiro campo fica em dateGrdtCol e o segundo em
+   * dateEffectiveCol/dateCol, evitando o mapeamento ambíguo que gerava o aviso
+   * "DATA EGRDT não é reconhecida como Data Efetiva de Emissão".
    */
   function refreshConferenceMapping() {
     const rel = relation();
@@ -56,8 +61,10 @@
     if (!rel || !map) return;
     const sheet = rel.meta?.sheets?.find((item) => item.path === map.sheetPath) || rel.meta?.sheets?.[0];
     if (!sheet?.grid) return;
+
+    const lookup = gridLookup(sheet.grid);
     const detected = V.headers.detectRelation(
-      gridLookup(sheet.grid),
+      lookup,
       Math.min(sheet.grid.maxRow || 0, 80),
       sheet.grid.maxCol || 0
     );
@@ -68,6 +75,31 @@
     map.sourceShortLabel = detected.sourceShortLabel;
     map.sourceDateLabel = detected.sourceDateLabel;
     map.roleLabel = detected.sourceLabel;
+    map.dateEffectiveCol = detected.dateEffectiveCol || null;
+    map.dateGrdtCol = detected.dateGrdtCol || null;
+    map.dateFallback = !!detected.dateFallback;
+
+    const currentDateHeader = map.dateCol
+      ? lookup(Number(map.headerRow || detected.headerRow), Number(map.dateCol))
+      : '';
+    const currentIsEffective = V.headers.isConferenceDateHeader(currentDateHeader);
+    const currentIsGrdt = V.headers.isGrdtDateHeader(currentDateHeader);
+
+    if (detected.dateEffectiveCol) {
+      // A data real confirmada sempre vence quando existe no relatório.
+      if (!currentIsEffective || Number(map.dateCol) !== Number(detected.dateEffectiveCol)) {
+        map.dateCol = detected.dateEffectiveCol;
+      }
+      map.dateFallback = false;
+    } else if (detected.dateGrdtCol) {
+      // Compatibilidade com relatórios antigos que só trazem DATA EGRDT.
+      if (!map.dateCol || (!currentIsGrdt && !currentIsEffective)) map.dateCol = detected.dateGrdtCol;
+      map.dateFallback = true;
+    } else if (!map.dateCol && detected.dateCol) {
+      map.dateCol = detected.dateCol;
+    }
+
+    if (!map.revisionCol && detected.revisionCol) map.revisionCol = detected.revisionCol;
     if (!map.conferenceCol) map.conferenceCol = detected.conferenceCol;
     if (!map.sigemStatusCol) map.sigemStatusCol = detected.sigemStatusCol;
 
@@ -111,6 +143,10 @@
       const map = mapping();
       if (!map) return;
       map[fieldName] = select.value ? Number(select.value) : null;
+      if (fieldName === 'dateGrdtCol' && map.relationType === 'conference' && !map.dateEffectiveCol) {
+        map.dateCol = map[fieldName];
+        map.dateFallback = !!map[fieldName];
+      }
       invalidateConfirmation();
       refreshCompleteness();
     };
@@ -119,7 +155,10 @@
 
   function ensureExtraField(grid, template, fieldName, label, selected, placeholder) {
     let select = grid.querySelector(`select[data-k="r"][data-f="${fieldName}"]`);
-    if (select) return select;
+    if (select) {
+      select.value = selected ? String(selected) : '';
+      return select;
+    }
     const field = document.createElement('div');
     field.className = 'field conference-source-field';
     const fieldLabel = document.createElement('label');
@@ -206,16 +245,31 @@
     const revisionSelect = grid.querySelector('select[data-k="r"][data-f="revisionCol"]');
     if (!documentSelect || !dateSelect || !revisionSelect) return;
 
-    setFieldLabel(fieldFor(dateSelect), 'Data efetiva / confirmação', false);
+    // Sincroniza o select legado com a coluna semanticamente correta.
+    if (map.dateCol && dateSelect.value !== String(map.dateCol)) dateSelect.value = String(map.dateCol);
+
+    setFieldLabel(
+      fieldFor(dateSelect),
+      map.dateFallback ? 'Data da GRDT (fallback legado)' : 'Data efetiva / confirmação',
+      false
+    );
     setFieldLabel(fieldFor(revisionSelect), 'Revisão enviada na GRDT', false);
 
+    ensureExtraField(
+      grid,
+      documentSelect,
+      'dateGrdtCol',
+      'Data da GRDT / DATA EGRDT',
+      map.dateGrdtCol,
+      'Opcional'
+    );
     ensureExtraField(grid, documentSelect, 'conferenceCol', 'Conferência / postagem confirmada', map.conferenceCol, 'Selecione…');
     ensureExtraField(grid, documentSelect, 'sigemStatusCol', 'Status SIGEM', map.sigemStatusCol, 'Opcional');
 
     if (!root.querySelector('.conference-source-note')) {
       const note = document.createElement('div');
       note.className = 'file-meta conference-source-note';
-      note.textContent = 'Somente registros confirmados como Postado/Confirmado pela Conferência podem atualizar a LD. Status SIGEM é informativo e não confirma postagem.';
+      note.textContent = 'Data Efetiva/Confirmação é usada como data real da postagem. DATA EGRDT é preservada separadamente como data da GRDT e só vira fallback quando não existe data efetiva. Somente registros confirmados como Postado/Confirmado pela Conferência podem atualizar a LD.';
       grid.insertAdjacentElement('afterend', note);
     }
 
