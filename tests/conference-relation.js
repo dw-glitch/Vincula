@@ -30,8 +30,8 @@ async function main() {
     checks++;
   };
 
-  // 1) Relatório realista do GRCON: título acima do cabeçalho, ordem igual ao
-  // export atual e os três estados observados na Conferência de Postagem.
+  // 1) Relatório realista do GRCON: DATA eGRDT e Data da confirmação coexistem.
+  // A confirmação deve ser a data aplicada; DATA eGRDT deve ser preservada separada.
   const conferenceRows = [
     [cell('RELATÓRIO DE CONFERÊNCIA DE POSTAGEM')],
     [], [], [], [], [], [], [], [],
@@ -53,13 +53,18 @@ async function main() {
   eq(conferenceMeta.sourceLabel, 'Conferência Histórico × Consulta Geral', 'deve expor o rótulo da fonte');
   eq(conferenceMeta.mapping.documentCol, 1, 'Código deve ser Documento');
   eq(conferenceMeta.mapping.grdtCol, 4, 'eGRDT deve ser GRDT');
+  eq(conferenceMeta.mapping.dateGrdtCol, 5, 'Data eGRDT deve ser preservada como data da GRDT');
   eq(conferenceMeta.mapping.revisionCol, 6, 'Revisão enviada deve ser a revisão-fonte');
   eq(conferenceMeta.mapping.conferenceCol, 8, 'Conferência deve controlar a confirmação');
   eq(conferenceMeta.mapping.sigemStatusCol, 9, 'Status SIGEM deve ser reconhecido separadamente');
-  eq(conferenceMeta.mapping.dateCol, 10, 'Data da confirmação deve alimentar a data confirmada');
+  eq(conferenceMeta.mapping.dateCol, 10, 'Data da confirmação deve alimentar a data aplicada');
+  eq(conferenceMeta.mapping.dateEffectiveCol, 10, 'Data da confirmação deve ser registrada como data efetiva');
+  eq(conferenceMeta.mapping.dateFallback, false, 'com data efetiva não deve ativar fallback para DATA eGRDT');
   eq(conferenceMeta.mapping.headerRow, 10, 'deve localizar cabeçalho após título e linhas vazias');
 
   const conferenceIndex = await V.tasks.indexRelation({ fileId: 'conf-real', mapping: conferenceMeta.mapping });
+  eq(conferenceIndex.headerWarning, null, 'conferência válida não deve gerar aviso de cabeçalho de data');
+  eq(conferenceIndex.dateMode, 'effective', 'a conferência deve operar no modo de data efetiva');
   eq(conferenceIndex.totalRows, 4, 'todas as linhas devem permanecer auditáveis');
   eq(conferenceIndex.conferenceStats.confirmed, 2, 'só Postado/Confirmado deve ser elegível');
   eq(conferenceIndex.conferenceStats.excluded, 2, 'não postado e divergente devem ser excluídos da atualização');
@@ -71,7 +76,10 @@ async function main() {
   eq(conferenceIndex.selected.get('DOC-001').revision, 'A', 'deve preservar a revisão enviada');
   eq(conferenceIndex.selected.get('DOC-001').grdt, 'GRDT-0001 - eGRDT', 'deve preservar a eGRDT completa');
   eq(conferenceIndex.selected.get('DOC-004').grdt, 'GRDT-0004/COMPLETA - eGRDT', 'deve preservar caracteres do número da eGRDT');
-  eq(conferenceIndex.selected.get('DOC-001').dateText, '02/09/2026', 'deve converter confirmação com hora para data efetiva pura');
+  eq(conferenceIndex.selected.get('DOC-001').dateText, '02/09/2026', 'a data aplicada deve vir da confirmação');
+  eq(conferenceIndex.selected.get('DOC-001').dateEffectiveText, '02/09/2026', 'deve preservar a data efetiva separadamente');
+  eq(conferenceIndex.selected.get('DOC-001').dateGrdtText, '01/09/2026', 'deve preservar DATA eGRDT separadamente');
+  eq(conferenceIndex.selected.get('DOC-001').dateSource, 'effective', 'deve registrar a origem semântica da data aplicada');
   eq(conferenceIndex.invalidDates.length, 0, 'datas inválidas de linhas não confirmadas não devem contaminar pendências de atualização');
 
   // 2) Cabeçalhos reordenados e com pequenas variações: não depende de posição.
@@ -85,13 +93,15 @@ async function main() {
   eq(shuffledMeta.mapping.revisionCol, 2, 'deve localizar Revisão enviada na GRDT');
   eq(shuffledMeta.mapping.conferenceCol, 3, 'deve localizar Status da conferência sem confundir com SIGEM');
   eq(shuffledMeta.mapping.dateCol, 4, 'deve preferir Data Efetiva de Emissão quando disponível');
+  eq(shuffledMeta.mapping.dateEffectiveCol, 4, 'deve manter coluna efetiva explícita');
+  eq(shuffledMeta.mapping.dateGrdtCol, null, 'não deve inventar DATA GRDT quando não existe');
   eq(shuffledMeta.mapping.documentCol, 5, 'deve localizar documento fora da primeira coluna');
   eq(shuffledMeta.mapping.grdtCol, 6, 'deve localizar eGRDT fora da posição padrão');
   eq(shuffledMeta.mapping.sigemStatusCol, 7, 'deve localizar Status SIGEM separadamente');
   const shuffledIndex = await V.tasks.indexRelation({ fileId: 'conf-shuffled', mapping: shuffledMeta.mapping });
   eq(shuffledIndex.selected.get('DOC-X').revision, 'R2', 'revisão enviada deve sobreviver à normalização do cabeçalho');
 
-  // 3) Formato legado: comportamento anterior intacto.
+  // 3) Formato legado original: comportamento anterior intacto.
   const historyRows = [
     [cell('Documento'), cell('GRDT'), cell('Data da geração / postagem'), cell('Revisão')],
     [cell('DOC-H1'), cell('GRDT-H1'), cell('01/09/2026'), cell('A')],
@@ -104,8 +114,75 @@ async function main() {
   const historyIndex = await V.tasks.indexRelation({ fileId: 'history', mapping: historyMeta.mapping });
   eq(historyIndex.selected.size, 2, 'Histórico deve manter o comportamento legado e usar as duas linhas');
   eq(historyIndex.conferenceStats, null, 'Histórico não deve receber filtro de confirmação');
+  eq(historyIndex.headerWarning, null, 'formato histórico já aceito deve continuar sem aviso');
 
-  // 4) Falta de coluna obrigatória: mensagem específica, sem "arquivo inválido" genérico.
+  // 4) Histórico antigo cuja única data é DATA EGRDT deve ser aceito sem alerta.
+  const historyGrdtRows = [
+    [cell('Documento'), cell('GRDT'), cell('DATA EGRDT'), cell('Revisão')],
+    [cell('DOC-HG1'), cell('GRDT-HG1'), cell('01/09/2026'), cell('A')],
+  ];
+  const historyGrdtBytes = await buildWorkbook(JSZip, [{ name: 'Histórico', rows: historyGrdtRows, options: {} }]);
+  const historyGrdtMeta = await openRelation(V, historyGrdtBytes, 'history-grdt-date', 'Historico_DATA_EGRDT.xlsx');
+  eq(historyGrdtMeta.relationType, 'history', 'DATA EGRDT sozinha não deve converter histórico em Conferência');
+  eq(historyGrdtMeta.mapping.dateCol, 3, 'DATA EGRDT deve ser a data legada do Histórico');
+  eq(historyGrdtMeta.mapping.dateGrdtCol, 3, 'DATA EGRDT deve ser identificada semanticamente');
+  const historyGrdtIndex = await V.tasks.indexRelation({ fileId: 'history-grdt-date', mapping: historyGrdtMeta.mapping });
+  eq(historyGrdtIndex.headerWarning, null, 'DATA EGRDT válida não deve gerar o aviso antigo');
+  eq(historyGrdtIndex.selected.get('DOC-HG1').dateText, '01/09/2026', 'Histórico deve continuar usando DATA EGRDT');
+  eq(historyGrdtIndex.selected.get('DOC-HG1').dateGrdtText, '01/09/2026', 'valor DATA EGRDT deve permanecer disponível separadamente');
+
+  // 5) Conferência legada com DATA EGRDT, mas sem data efetiva: aceita por fallback,
+  // sem fingir que DATA EGRDT é semanticamente uma data efetiva.
+  const conferenceFallbackRows = [
+    [cell('Código'), cell('eGRDT'), cell('DATA E-GRDT'), cell('Revisão enviada'), cell('Conferência'), cell('Status SIGEM')],
+    [cell('DOC-F1'), cell('GRDT-F1'), cell('04/09/2026'), cell('A'), cell('Postado'), cell('Em Workflow')],
+  ];
+  const conferenceFallbackBytes = await buildWorkbook(JSZip, [{ name: 'RESUMO', rows: conferenceFallbackRows, options: {} }]);
+  const conferenceFallbackMeta = await openRelation(V, conferenceFallbackBytes, 'conf-fallback', 'Conferencia_DATA_EGRDT.xlsx');
+  eq(conferenceFallbackMeta.relationType, 'conference', 'campos exclusivos devem manter a origem como Conferência');
+  eq(conferenceFallbackMeta.mapping.dateEffectiveCol, null, 'fallback não pode marcar DATA EGRDT como efetiva');
+  eq(conferenceFallbackMeta.mapping.dateGrdtCol, 3, 'DATA E-GRDT deve ser reconhecida como data da GRDT');
+  eq(conferenceFallbackMeta.mapping.dateCol, 3, 'dateCol legado deve apontar para o fallback apenas por compatibilidade');
+  eq(conferenceFallbackMeta.mapping.dateFallback, true, 'deve registrar explicitamente o modo fallback');
+  const conferenceFallbackIndex = await V.tasks.indexRelation({ fileId: 'conf-fallback', mapping: conferenceFallbackMeta.mapping });
+  eq(conferenceFallbackIndex.headerWarning, null, 'fallback conhecido não deve gerar a mensagem de erro antiga');
+  eq(conferenceFallbackIndex.dateMode, 'grdt-fallback', 'deve informar que a data veio do fallback GRDT');
+  eq(conferenceFallbackIndex.selected.get('DOC-F1').dateText, '04/09/2026', 'fallback deve continuar funcional');
+  eq(conferenceFallbackIndex.selected.get('DOC-F1').dateEffectiveText, '', 'fallback não pode fabricar data efetiva');
+  eq(conferenceFallbackIndex.selected.get('DOC-F1').dateGrdtText, '04/09/2026', 'DATA EGRDT deve permanecer preservada');
+
+  // 6) Catálogo central de aliases e normalização de pontuação/acentuação.
+  for (const alias of [
+    'DATA EGRDT',
+    'DATA E-GRDT',
+    'DATA E GRDT',
+    'DATA DA EGRDT',
+    'DATA DA GRDT',
+    'DATA GRDT',
+    'DATA DE GRDT',
+    'DATA DE EMISSÃO GRDT',
+    'DATA EMISSÃO GRDT',
+    '  data_e-grdt  ',
+  ]) {
+    ok(V.headers.isGrdtDateHeader(alias), `deve reconhecer alias de data GRDT: ${alias}`);
+  }
+  for (const alias of [
+    'DATA EFETIVA DE EMISSÃO',
+    'DATA EFETIVA EMISSÃO',
+    'DATA DE EMISSÃO',
+    'DATA DA EMISSÃO',
+    'DATA DA CONFIRMAÇÃO',
+    'DATA CONFIRMAÇÃO',
+    'DATA DE CONFIRMAÇÃO',
+    'Data_Efetiva_de_Emissão',
+    '  data efetiva   de emissão  ',
+  ]) {
+    ok(V.headers.isConferenceDateHeader(alias), `deve reconhecer alias de data efetiva/confirmação: ${alias}`);
+  }
+  ok(!V.headers.isConferenceDateHeader('DATA EGRDT'), 'DATA EGRDT não pode ser classificada como data efetiva');
+  ok(!V.headers.isGrdtDateHeader('Data Efetiva de Emissão'), 'data efetiva não pode ser classificada como DATA GRDT');
+
+  // 7) Falta total de coluna de data: mensagem específica e bloqueio real.
   const missingDateRows = [
     [cell('Código'), cell('eGRDT'), cell('Revisão enviada'), cell('Conferência')],
     [cell('DOC-M'), cell('GRDT-M'), cell('A'), cell('Postado')],
@@ -116,12 +193,12 @@ async function main() {
   eq(missingDateMeta.mapping.dateCol, null, 'data ausente deve permanecer ausente');
   await assert.rejects(
     () => V.tasks.indexRelation({ fileId: 'conf-missing-date', mapping: missingDateMeta.mapping }),
-    /Data Efetiva de Emissão.*Data da confirmação/,
-    'erro deve dizer qual coluna de data não foi encontrada'
+    /Data Efetiva de Emissão.*Data da confirmação.*DATA EGRDT/,
+    'erro deve explicar todas as opções de data aceitas'
   );
   checks++;
 
-  // 5) Volume: milhares de linhas, com somente metade confirmada.
+  // 8) Volume: milhares de linhas, com somente metade confirmada.
   const volume = [[cell('Código'), cell('eGRDT'), cell('Revisão enviada'), cell('Conferência'), cell('Data da confirmação')]];
   const volumeCount = 6000;
   for (let i = 1; i <= volumeCount; i++) {
