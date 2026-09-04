@@ -60,6 +60,9 @@
       mapping.documentCol,
       mapping.grdtCol,
       mapping.dateCol,
+      mapping.dateEffectiveCol,
+      mapping.dateGrdtCol,
+      mapping.dateFallback ? 1 : 0,
       mapping.revisionCol,
       mapping.conferenceCol,
       mapping.sigemStatusCol,
@@ -122,6 +125,9 @@
       documentCol: detected ? detected.documentCol : null,
       grdtCol: detected ? detected.grdtCol : null,
       dateCol: detected ? detected.dateCol : null,
+      dateEffectiveCol: detected ? detected.dateEffectiveCol || null : null,
+      dateGrdtCol: detected ? detected.dateGrdtCol || null : null,
+      dateFallback: !!(detected && detected.dateFallback),
       revisionCol: detected ? detected.revisionCol : null,
       conferenceCol: detected ? detected.conferenceCol : null,
       sigemStatusCol: detected ? detected.sigemStatusCol : null,
@@ -310,6 +316,8 @@
       mapping.documentCol,
       mapping.grdtCol,
       mapping.dateCol,
+      mapping.dateEffectiveCol,
+      mapping.dateGrdtCol,
       mapping.revisionCol,
       mapping.conferenceCol,
       mapping.sigemStatusCol,
@@ -329,12 +337,34 @@
   /** Confere se a coluna de data corresponde ao tipo de relação identificado. */
   function validatePostingHeader(entry, mapping) {
     const info = entry.meta.sheets.find((s) => s.path === mapping.sheetPath);
-    if (!info || !info.grid || !mapping.dateCol) return { ok: false, header: '' };
-    const header = gridLookup(info.grid)(Number(mapping.headerRow), Number(mapping.dateCol));
-    const ok = mapping.relationType === 'conference'
-      ? V.headers.isConferenceDateHeader(header)
-      : V.headers.isRelationDateHeader(header);
-    return { ok, header: normalizeHeader(header) };
+    if (!info || !info.grid) return { ok: false, header: '', mode: 'missing' };
+
+    const isConference = mapping.relationType === 'conference';
+    const effectiveCol = Number(mapping.dateEffectiveCol) || null;
+    const grdtDateCol = Number(mapping.dateGrdtCol) || null;
+    const resolvedCol = isConference
+      ? effectiveCol || Number(mapping.dateCol) || grdtDateCol
+      : Number(mapping.dateCol) || grdtDateCol;
+    if (!resolvedCol) return { ok: false, header: '', mode: 'missing' };
+
+    const header = gridLookup(info.grid)(Number(mapping.headerRow), resolvedCol);
+    let ok;
+    let mode;
+
+    if (isConference) {
+      if (effectiveCol || V.headers.isConferenceDateHeader(header)) {
+        ok = V.headers.isConferenceDateHeader(header);
+        mode = ok ? 'effective' : 'invalid';
+      } else {
+        ok = V.headers.isGrdtDateHeader(header);
+        mode = ok ? 'grdt-fallback' : 'invalid';
+      }
+    } else {
+      ok = V.headers.isRelationDateHeader(header);
+      mode = ok && V.headers.isGrdtDateHeader(header) ? 'grdt-legacy' : ok ? 'legacy' : 'invalid';
+    }
+
+    return { ok, header: normalizeHeader(header), mode };
   }
 
   function validateConferenceMapping(mapping) {
@@ -348,8 +378,8 @@
     if (!mapping.revisionCol) {
       throw new Error('Não foi possível identificar a coluna “Revisão enviada na GRDT” na planilha de Conferência Histórico × Consulta Geral.');
     }
-    if (!mapping.dateCol) {
-      throw new Error('Não foi possível identificar “Data Efetiva de Emissão” ou “Data da confirmação” na planilha de Conferência Histórico × Consulta Geral.');
+    if (!mapping.dateEffectiveCol && !mapping.dateCol && !mapping.dateGrdtCol) {
+      throw new Error('Não foi possível identificar uma coluna de data na Conferência Histórico × Consulta Geral. São aceitas “Data Efetiva de Emissão”, “Data da confirmação” ou “DATA EGRDT” no modo legado.');
     }
     if (!mapping.conferenceCol) {
       throw new Error('Não foi possível identificar a coluna “Conferência”, necessária para determinar se a postagem foi confirmada no SIGEM.');
@@ -367,14 +397,16 @@
     const result = await withModel(entry, mapping, async (sheet, model) => {
       const index = V.indexer.buildRelationIndex(entry.wb, model, mapping);
       const dateKind = mapping.relationType === 'conference'
-        ? 'Data Efetiva de Emissão / Data da confirmação'
-        : 'data da Relação GRCON (postagem/geração ou efetiva de emissão)';
+        ? 'Data Efetiva de Emissão / Data da confirmação / DATA EGRDT (fallback legado)'
+        : 'data da Relação GRCON (postagem/geração, efetiva de emissão ou DATA EGRDT)';
       return {
         fileId,
         name: entry.name,
         sheetName: sheet.name,
         relationType: mapping.relationType || 'history',
         sourceLabel: mapping.sourceLabel || (mapping.relationType === 'conference' ? 'Conferência Histórico × Consulta Geral' : 'Histórico GRCON'),
+        dateMode: check.mode,
+        dateFallback: check.mode === 'grdt-fallback',
         headerWarning: check.ok ? null : `A coluna de data associada ("${check.header}") não é reconhecida como ${dateKind}.`,
         rows: index.rows,
         eligibleRows: index.eligibleRows,
