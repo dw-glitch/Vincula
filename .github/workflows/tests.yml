@@ -1,0 +1,37 @@
+name: Testes do Vincula
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Obter código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validar sintaxe dos arquivos alterados
+        run: |
+          node --check src/core/headers.js
+          node --check src/core/tasks.js
+          node --check src/core/indexer.js
+          node --check src/ui/conference-source.js
+          node --check tests/conference-relation.js
+
+      - name: Executar suíte funcional e de integridade
+        run: node tests/run.js
+
+      - name: Executar testes da Conferência Histórico x Consulta Geral
+        run: node tests/conference-relation.js
