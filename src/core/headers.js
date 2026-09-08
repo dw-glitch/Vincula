@@ -101,7 +101,7 @@
       forbidden: ['EFETIVA', 'CONFIRMACAO', 'VENCIMENTO'],
     },
     dateGrdt: {
-      label: 'Data da GRDT / eGRDT',
+      label: 'Data de envio da GRDT / eGRDT',
       exact: [
         'DATA EGRDT',
         'DATA E GRDT',
@@ -111,11 +111,17 @@
         'DATA DE GRDT',
         'DATA DE EMISSAO GRDT',
         'DATA EMISSAO GRDT',
+        'DATA DE ENVIO DA GRDT',
+        'DATA DE ENVIO DA EGRDT',
+        'DATA ENVIO GRDT',
+        'DATA ENVIO EGRDT',
+        'DT ENVIO GRDT',
+        'DT ENVIO EGRDT',
         'DT EGRDT',
         'DT GRDT',
       ],
       required: [['DATA', 'DT'], ['GRDT', 'EGRDT']],
-      optional: ['GRDT', 'EGRDT', 'EMISSAO'],
+      optional: ['GRDT', 'EGRDT', 'EMISSAO', 'ENVIO'],
       forbidden: ['EFETIVA', 'CONFIRMACAO', 'GERACAO', 'POSTAGEM', 'VENCIMENTO', 'PREVISTA'],
     },
     revision: {
@@ -172,9 +178,9 @@
   };
 
   /**
-   * Data confirmada usada pela Conferência Histórico × Consulta Geral.
-   * Nunca inclui DATA EGRDT: quando as duas existem, a efetiva/confirmação
-   * deve vencer e a data da GRDT permanece em um campo separado.
+   * Data de confirmação disponível na Conferência Histórico × Consulta Geral.
+   * É mantida apenas como evidência informativa: nunca alimenta a data escrita
+   * na LD, que vem exclusivamente da data de envio da GRDT/eGRDT.
    */
   FIELDS.conferenceDate = {
     label: 'Data Efetiva de Emissão / Data da confirmação',
@@ -449,7 +455,9 @@
     if (conferenceSignature) {
       const dateEffectiveCol = conference.dateCol || null;
       const dateGrdtCol = conference.dateGrdtCol || null;
-      const resolvedDateCol = dateEffectiveCol || dateGrdtCol || null;
+      // Regra funcional: a data gravada na LD é sempre a data de envio da
+      // GRDT/eGRDT. A confirmação continua detectada apenas para auditoria.
+      const resolvedDateCol = dateGrdtCol || null;
       const required = [
         conference.documentCol,
         conference.grdtCol,
@@ -462,15 +470,11 @@
         dateCol: resolvedDateCol,
         dateEffectiveCol,
         dateGrdtCol,
-        dateFallback: !dateEffectiveCol && !!dateGrdtCol,
+        dateFallback: false,
         relationType: 'conference',
         sourceLabel: 'Conferência Histórico × Consulta Geral',
         sourceShortLabel: 'Conferência',
-        sourceDateLabel: dateEffectiveCol
-          ? 'Data efetiva / confirmação'
-          : dateGrdtCol
-            ? 'Data da GRDT (fallback legado)'
-            : 'Data efetiva / confirmação',
+        sourceDateLabel: dateGrdtCol ? 'Data de envio da GRDT' : 'Data de envio da GRDT não encontrada',
         confidence: required === 5 ? 'alta' : required >= 4 ? 'media' : 'baixa',
       };
     }

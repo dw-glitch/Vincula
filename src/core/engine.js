@@ -243,8 +243,8 @@
         if (!relationMapping.revisionCol) {
           throw new Error('Não foi possível identificar a coluna “Revisão enviada na GRDT” na Conferência Histórico × Consulta Geral.');
         }
-        if (!relationMapping.dateCol) {
-          throw new Error('Não foi possível identificar “Data Efetiva de Emissão” ou “Data da confirmação” na Conferência Histórico × Consulta Geral.');
+        if (!relationMapping.dateCol || !relationMapping.dateGrdtCol) {
+          throw new Error('Não foi possível identificar a data de envio da GRDT/eGRDT. A data de confirmação não é usada para preencher a LD.');
         }
         if (!relationMapping.conferenceCol) {
           throw new Error('Não foi possível identificar a coluna “Conferência”, necessária para confirmar a postagem no SIGEM.');
