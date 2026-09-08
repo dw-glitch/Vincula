@@ -35,6 +35,11 @@ Nenhum arquivo sai da máquina do usuário.
 3. **Conferência** — pré-visualize documento a documento o que mudaria, com filtros e busca.
 4. **Downloads** — baixe as LDs atualizadas, o relatório de auditoria, o log e o pacote ZIP.
 
+Cada LD é liberada para download assim que termina sua conferência, sem esperar a montagem do
+relatório e do ZIP do lote inteiro. Toda LD legível carregada é devolvida: quando nenhuma mudança
+é necessária, o Vincula entrega uma cópia byte a byte idêntica ao arquivo original e informa que
+ele já estava correto.
+
 ## Regras funcionais
 
 ### GRDT

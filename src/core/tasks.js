@@ -18,7 +18,7 @@
   const { normalizeHeader, indexToColumn, parseRef } = V.util;
   const X = V.xlsx;
 
-  /** fileId → { name, hash, wb, indexes } */
+  /** fileId → { name, hash, originalBytes, wb, indexes } */
   const registry = new Map();
   /** hash|nome → fileId, base do cache entre execuções da mesma sessão. */
   const fingerprints = new Map();
@@ -240,7 +240,10 @@
       mappings,
     };
 
-    const entry = { name, hash, profile, wb, meta, indexes: new Map() };
+    // Mantém os bytes recebidos para devolver uma LD byte a byte idêntica
+    // quando a análise conclui que ela já está correta. Antes, arquivos sem
+    // alterações nem sequer entravam na geração e desapareciam da entrega.
+    const entry = { name, hash, profile, originalBytes: bytes, wb, meta, indexes: new Map() };
     registry.set(fileId, entry);
     fingerprints.set(fingerprint, fileId);
     return { ...toPayloadMeta(meta), fromCache: false };
@@ -492,6 +495,31 @@
     const { groups, discarded } = groupPlanBySheet(plan, targets);
     report && report({ phase: 'atualizacao', name: entry.name });
 
+    // Toda LD legível deve voltar ao usuário. Se nada precisa ser escrito,
+    // devolvemos uma cópia dos bytes originais: é instantâneo, preserva o
+    // arquivo integralmente e evita uma recompressão inútil do XLSX/XLSM.
+    if (!(plan && plan.length)) {
+      const bytes = entry.originalBytes.slice();
+      return {
+        ok: true,
+        fileId,
+        name: entry.name,
+        sheetName: targets[0].sheetName,
+        sheetNames: [],
+        sheets: [],
+        snapshotHash: entry.hash,
+        results: [],
+        occurrences: [],
+        guards: { protected: false, merges: 0, validations: 0, conditional: 0, autoFilter: false },
+        integrity: { verified: true, ok: true, comparedCells: 0, violations: [], byteIdentical: true },
+        counters: { grdtWrites: 0, dateWrites: 0, revisionWrites: 0, authorizedCells: 0 },
+        outputName: V.applier.outputName(entry.name),
+        bytes,
+        outputHash: entry.hash,
+        unchanged: true,
+      };
+    }
+
     const sheetResults = [];
     let failure = null;
 
@@ -591,6 +619,7 @@
     for (const other of registry.values()) if (other === entry) return { released: true, shared: true };
     for (const [fingerprint, id] of fingerprints) if (id === fileId) fingerprints.delete(fingerprint);
     if (entry.wb) X.close(entry.wb);
+    entry.originalBytes = null;
     entry.indexes.clear();
     return { released: true };
   }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.3.0 — Entrega garantida e geração mais rápida
+
+- Toda LD legível carregada passa a ser entregue, mesmo quando já estava correta ou quando a relação não gera nenhuma alteração para ela. Nesses casos, o arquivo devolvido é byte a byte idêntico ao original.
+- Cada LD aparece para download assim que termina sua própria atualização e conferência; não é mais necessário esperar a auditoria e o pacote ZIP completo.
+- XLSX/XLSM deixam de ser recomprimidos no nível máximo e são armazenados sem recompressão no ZIP externo, reduzindo fortemente o tempo gasto na etapa final.
+- A interface não mostra mais uma mensagem enganosa de sucesso quando alguma LD falha: os arquivos concluídos permanecem disponíveis e as falhas são destacadas nominalmente.
+- Artefatos de gerações anteriores são invalidados ao começar um novo lote, evitando downloads desatualizados.
+
+
 ## 2.2.0
 
 O Vincula passa a aceitar automaticamente **duas fontes do GRCON** na mesma área de importação:

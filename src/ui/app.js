@@ -32,6 +32,7 @@
     allExpanded: false,
     busy: false,
     searchTimer: null,
+    readyOutputs: new Map(),
   };
 
   /* ================================================================== *
@@ -162,6 +163,46 @@
     ui.logEntries.push(entry);
     if (entry.level === 'error') console.error('[Vincula]', entry.message, entry.detail || '');
     else if (entry.level === 'warn') console.warn('[Vincula]', entry.message, entry.detail || '');
+  });
+
+  function outputDownloadItem(output) {
+    return {
+      name: output.name,
+      meta: output.unchanged
+        ? `${formatBytes(output.size)} · já estava correta; devolvida sem nenhuma alteração`
+        : `${formatBytes(output.size)} · ${output.grdtWrites} GRDT, ${output.dateWrites} data(s)${
+            output.revisionWrites ? ` e ${output.revisionWrites} revisão(ões)` : ''
+          } atualizadas`,
+      blob: new Blob([output.bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+    };
+  }
+
+  function bindDownloadItems(items) {
+    $('downloadList').innerHTML = items
+      .map(
+        (item, i) => `<div class="download-item">
+          <div><strong>${esc(item.name)}</strong><small>${esc(item.meta)}</small></div>
+          <button class="btn ghost small" data-download="${i}" type="button">Baixar</button>
+        </div>`
+      )
+      .join('');
+
+    document.querySelectorAll('[data-download]').forEach((button) => {
+      button.onclick = () => {
+        const item = items[+button.dataset.download];
+        download(item.blob, item.name);
+      };
+    });
+  }
+
+  // Cada LD é liberada no instante em que seu worker termina. Relatório, log
+  // e pacote ZIP continuam sendo montados em segundo plano.
+  engine.on('output', ({ output, finished, total }) => {
+    ui.readyOutputs.set(output.sourceFileId || output.name, output);
+    const items = [...ui.readyOutputs.values()].map(outputDownloadItem);
+    $('finalSummary').innerHTML = `<h4>${formatNumber(items.length)}/${formatNumber(total)} LD(s) pronta(s) para baixar</h4>
+      <p>Você já pode baixar os arquivos concluídos enquanto o relatório e o pacote final são preparados.</p>`;
+    bindDownloadItems(items);
   });
 
   /* ================================================================== *
@@ -818,7 +859,7 @@
         ${ok ? 'Atualização concluída com integridade aprovada' : 'Atualização concluída com pendências'}
       </h4>
       <p>
-        ${formatNumber(outputs.length)} planilha(s) atualizada(s) · ${formatNumber(s.willChange)} documento(s) alterado(s) ·
+        ${formatNumber(outputs.length)} planilha(s) entregue(s) · ${formatNumber(s.willChange)} documento(s) alterado(s) ·
         ${formatNumber(s.missing)} não encontrado(s) · ${formatNumber(s.invalidDates)} com data inválida na relação (data da LD mantida) ·
         ${formatNumber(s.unchanged)} já estavam certos.
       </p>
@@ -827,32 +868,12 @@
     `;
 
     const items = [
-      ...outputs.map((o) => ({
-        name: o.name,
-        meta: `${formatBytes(o.size)} · ${o.grdtWrites} GRDT, ${o.dateWrites} data(s)${
-          o.revisionWrites ? ` e ${o.revisionWrites} revisão(ões)` : ''
-        } atualizadas`,
-        blob: new Blob([o.bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
-      })),
+      ...outputs.map(outputDownloadItem),
       { name: 'RELATORIO_AUDITORIA_VINCULA.xlsx', meta: 'Planilha com o antes e depois de cada documento', blob: result.auditBlob },
       { name: 'LOG_VINCULA.json', meta: 'Detalhes técnicos, para conferência ou TI', blob: result.logBlob },
     ];
 
-    $('downloadList').innerHTML = items
-      .map(
-        (item, i) => `<div class="download-item">
-          <div><strong>${esc(item.name)}</strong><small>${esc(item.meta)}</small></div>
-          <button class="btn ghost small" data-download="${i}" type="button">Baixar</button>
-        </div>`
-      )
-      .join('');
-
-    document.querySelectorAll('[data-download]').forEach((button) => {
-      button.onclick = () => {
-        const item = items[+button.dataset.download];
-        download(item.blob, item.name);
-      };
-    });
+    bindDownloadItems(items);
   }
 
   function exportLog() {
@@ -916,11 +937,19 @@
     button.textContent = 'Gerando e conferindo…';
     setBusy(true);
     resetStages('atualizacao');
+    ui.readyOutputs.clear();
+    $('downloadList').innerHTML = '';
+    $('finalSummary').innerHTML = '<h4>Preparando as LDs…</h4><p>Cada arquivo aparecerá aqui assim que estiver conferido.</p>';
+    $('downloadZipBtn').disabled = true;
+    $('downloadReportBtn').disabled = true;
+    goToStep(4);
     try {
       const result = await engine.generate();
       renderDownloads(result);
-      goToStep(4);
-      toast('Pacote gerado e conferido com sucesso.');
+      $('downloadZipBtn').disabled = false;
+      $('downloadReportBtn').disabled = false;
+      if (result.failures.length) toast(`${result.failures.length} LD(s) falharam. Baixe as concluídas e confira as pendências.`);
+      else toast('Todas as LDs foram entregues e conferidas com sucesso.');
     } catch (error) {
       toast('Falha: ' + error.message);
       $('progressDetail').textContent = error.message;

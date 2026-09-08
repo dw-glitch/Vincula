@@ -261,6 +261,24 @@ async function main() {
   const changed = await V.tasks.open({ fileId: 'ld1-mod', name: 'LD-A.xlsx', bytes: ldBytes, hash: 'h-diferente', profile: 'ld' });
   check('hash diferente invalida o cache', changed.fromCache === false);
 
+  suite('Entrega garantida de LD sem alteração');
+  const unchangedOutput = await V.tasks.apply({
+    fileId: 'ld1',
+    mapping: ldMeta.mapping,
+    mappings: ldMeta.mappings,
+    plan: [],
+    options: { verify: true },
+  });
+  check('LD sem alteração também é devolvida', unchangedOutput.ok === true, unchangedOutput.error);
+  check('saída informa que o arquivo permaneceu inalterado', unchangedOutput.unchanged === true);
+  check('integridade byte a byte é aprovada', unchangedOutput.integrity.ok === true && unchangedOutput.integrity.byteIdentical === true);
+  equal('LD devolvida conserva exatamente o tamanho original', unchangedOutput.bytes.length, ldBytes.length);
+  check(
+    'LD devolvida conserva exatamente todos os bytes originais',
+    unchangedOutput.bytes.every((byte, index) => byte === ldBytes[index])
+  );
+  equal('hash da saída inalterada é o hash original', unchangedOutput.outputHash, 'h-ld1');
+
   /* ---------------- Índices ---------------- */
   suite('Índices e regras de duplicidade');
 
