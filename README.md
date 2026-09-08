@@ -35,6 +35,11 @@ Nenhum arquivo sai da máquina do usuário.
 3. **Conferência** — pré-visualize documento a documento o que mudaria, com filtros e busca.
 4. **Downloads** — baixe as LDs atualizadas, o relatório de auditoria, o log e o pacote ZIP.
 
+Cada LD é liberada para download assim que termina sua conferência, sem esperar a montagem do
+relatório e do ZIP do lote inteiro. Toda LD legível carregada é devolvida: quando nenhuma mudança
+é necessária, o Vincula entrega uma cópia byte a byte idêntica ao arquivo original e informa que
+ele já estava correto.
+
 ## Regras funcionais
 
 ### GRDT
@@ -43,6 +48,8 @@ Nenhum arquivo sai da máquina do usuário.
 
 ### Data Efetiva de Emissão
 - Origem: coluna `DATA DA GERAÇÃO / POSTAGEM` da Relação GRCON.
+- Na Conferência Histórico × Consulta Geral, a origem é exclusivamente a coluna de data de envio da GRDT/eGRDT (`DATA EGRDT`, `Data da GRDT` ou `Data de envio da GRDT`). A data de confirmação é apenas informativa e não preenche a LD.
+- Se houver mais de uma GRDT confirmada para o mesmo documento, o Vincula usa a que possuir a data de envio mais recente. Em empate, usa a última ocorrência da relação.
 - `04/08/2026 08:31:45` é gravada como `04/08/2026` — **data real do Excel**, nunca texto.
 - Hora, minuto, segundo e milissegundo são removidos.
 - Uma data já existente na LD gravada como *texto* é reescrita como data real do Excel.

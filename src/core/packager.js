@@ -1,10 +1,9 @@
 /**
  * Vincula — empacotamento final.
  *
- * Prioridades, nesta ordem: integridade dos arquivos, menor tamanho final,
- * tempo aceitável. Por isso o ZIP usa DEFLATE nível 9 nos artefatos de texto
- * e mantém os XLSX — que já são ZIPs comprimidos internamente — em nível
- * baixo: recomprimir dados já comprimidos custa tempo e não reduz tamanho.
+ * Prioridades, nesta ordem: integridade dos arquivos, entrega rápida e tamanho
+ * aceitável. XLSX/XLSM já são ZIPs: ficam em STORE no pacote externo para não
+ * consumir CPU recomprimindo dados que já estão comprimidos.
  */
 (function (scope) {
   'use strict';
@@ -43,20 +42,17 @@
 
     const folder = zip.folder('LDs_ATUALIZADAS');
     for (const output of outputs) {
-      // XLSX/XLSM já são contêineres comprimidos: nível 1 mantém o tamanho e
-      // economiza um passe completo de DEFLATE por arquivo.
-      folder.file(output.name, output.bytes, { compression: 'DEFLATE', compressionOptions: { level: 1 } });
+      folder.file(output.name, output.bytes, { compression: 'STORE' });
     }
 
     zip.file('RELATORIO_AUDITORIA_VINCULA.xlsx', auditWorkbook, {
-      compression: 'DEFLATE',
-      compressionOptions: { level: 1 },
+      compression: 'STORE',
     });
-    zip.file('LOG_VINCULA.json', jsonLog, { compression: 'DEFLATE', compressionOptions: { level: 9 } });
-    zip.file(MANIFEST_NAME, buildManifest(summary, outputs), { compression: 'DEFLATE', compressionOptions: { level: 9 } });
+    zip.file('LOG_VINCULA.json', jsonLog, { compression: 'DEFLATE', compressionOptions: { level: 1 } });
+    zip.file(MANIFEST_NAME, buildManifest(summary, outputs), { compression: 'DEFLATE', compressionOptions: { level: 1 } });
 
     return zip.generateAsync(
-      { type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 9 } },
+      { type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 1 } },
       (meta) => onProgress && onProgress(meta.percent)
     );
   }

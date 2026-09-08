@@ -199,7 +199,9 @@
 
   /** Fecha o pacote com todas as abas pendentes já validadas. */
   async function finalize(wb, options = {}) {
-    const bytes = await X.commit(wb, { level: options.level ?? 9 });
+    // Nível 1 é intencional: XLSX/XLSM já são contêineres comprimidos e o
+    // nível 9 aumentava muito o tempo de resposta com ganho mínimo de tamanho.
+    const bytes = await X.commit(wb, { level: options.level ?? 1 });
     return { outputName: outputName(wb.name), bytes, outputHash: await sha256Hex(bytes) };
   }
 

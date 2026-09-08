@@ -62,12 +62,13 @@
    * Conferência Histórico × Consulta Geral: todas as linhas ficam registradas
    * em `rows` para auditoria, mas SOMENTE linhas cuja coluna Conferência diga
    * explicitamente que a postagem foi confirmada entram em `selected` e podem
-   * chegar à lógica de atualização das LDs.
+   * chegar à lógica de atualização das LDs. Se um documento tiver mais de uma
+   * GRDT confirmada, vence a de data de envio mais recente; em empate, vence a
+   * última ocorrência física.
    *
-   * A data da GRDT e a data efetiva/confirmação são mantidas separadas. Quando
-   * as duas existem, somente a efetiva alimenta `dateText/dateIso`; DATA EGRDT
-   * permanece disponível em `dateGrdt*`. O fallback para DATA EGRDT só ocorre
-   * quando o relatório não possui coluna efetiva, preservando o fluxo legado.
+   * A data da GRDT e a data efetiva/confirmação são mantidas separadas. Na
+   * Conferência, somente a data de envio da GRDT alimenta `dateText/dateIso`;
+   * a confirmação permanece disponível em `dateEffective*` para auditoria.
    */
   function buildRelationIndex(wb, model, mapping) {
     const documentCol = Number(mapping.documentCol);
@@ -107,16 +108,8 @@
       let selectedDate;
       let dateSource;
       if (relationType === 'conference') {
-        if (dateEffectiveCol) {
-          selectedDate = effectiveDate;
-          dateSource = 'effective';
-        } else if (dateGrdtCol || mapping.dateFallback) {
-          selectedDate = dateGrdtCol ? grdtDate : mappedDate;
-          dateSource = 'grdt-fallback';
-        } else {
-          selectedDate = mappedDate;
-          dateSource = 'conference-legacy';
-        }
+        selectedDate = dateGrdtCol ? grdtDate : mappedDate;
+        dateSource = 'grdt-sent';
       } else {
         selectedDate = mappedDateCol ? mappedDate : grdtDate;
         dateSource = dateGrdtCol && mappedDateCol === dateGrdtCol ? 'grdt-legacy' : 'history';
@@ -173,7 +166,16 @@
     const selected = new Map();
     const duplicates = [];
     for (const [document, list] of occurrences) {
-      const winner = list[list.length - 1];
+      const winner = relationType === 'conference'
+        ? list.reduce((latest, candidate) => {
+            if (!latest) return candidate;
+            if (candidate.dateValid && !latest.dateValid) return candidate;
+            if (!candidate.dateValid) return latest;
+            if (candidate.dateIso > latest.dateIso) return candidate;
+            if (candidate.dateIso === latest.dateIso && candidate.row > latest.row) return candidate;
+            return latest;
+          }, null)
+        : list[list.length - 1];
       selected.set(document, winner);
       if (list.length > 1) {
         const signatures = new Set(list.map((x) => `${squash(x.grdt)} ${squash(x.revision)} ${x.dateText}`));

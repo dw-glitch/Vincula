@@ -30,7 +30,7 @@
 
   function createEngine(options = {}) {
     const pool = V.createPool({ size: options.poolSize, workerUrl: options.workerUrl });
-    const listeners = { progress: [], metrics: [], log: [] };
+    const listeners = { progress: [], metrics: [], log: [], output: [] };
 
     let sequence = 0;
     let cancelled = false;
@@ -243,8 +243,8 @@
         if (!relationMapping.revisionCol) {
           throw new Error('Não foi possível identificar a coluna “Revisão enviada na GRDT” na Conferência Histórico × Consulta Geral.');
         }
-        if (!relationMapping.dateCol) {
-          throw new Error('Não foi possível identificar “Data Efetiva de Emissão” ou “Data da confirmação” na Conferência Histórico × Consulta Geral.');
+        if (!relationMapping.dateCol || !relationMapping.dateGrdtCol) {
+          throw new Error('Não foi possível identificar a data de envio da GRDT/eGRDT. A data de confirmação não é usada para preencher a LD.');
         }
         if (!relationMapping.conferenceCol) {
           throw new Error('Não foi possível identificar a coluna “Conferência”, necessária para confirmar a postagem no SIGEM.');
@@ -388,6 +388,14 @@
       checkCancelled();
       if (!state.analysis) throw new Error('Execute a análise antes de gerar.');
 
+      // Nunca permita que botões/consumidores reutilizem artefatos de uma
+      // geração anterior enquanto o novo lote está em andamento.
+      state.outputs = [];
+      state.report = null;
+      state.packageBlob = null;
+      state.auditBlob = null;
+      state.logBlob = null;
+
       const started = Date.now();
       metrics.startedAt = started;
       metrics.documentsProcessed = 0;
@@ -395,64 +403,29 @@
       publishMetrics();
 
       const analysis = state.analysis;
-      const byId = new Map(state.lds.map((ld) => [ld.fileId, ld]));
-      const targets = [...analysis.plans.entries()].map(([fileId, plan]) => ({ ld: byId.get(fileId), plan }));
+      // A entrega cobre toda LD legível, inclusive quando ela já está correta
+      // ou não recebeu nenhuma alteração da relação. Antes, somente arquivos
+      // presentes em analysis.plans eram gerados e os demais desapareciam.
+      const targets = state.lds
+        .filter((ld) => !ld.error && enabledMappings(ld).length)
+        .map((ld) => ({ ld, plan: analysis.plans.get(ld.fileId) || [] }));
 
-      if (!targets.length) log('warn', 'Nenhuma alteração a aplicar: todos os valores já conferem.');
+      if (!analysis.plans.size) log('info', 'Nenhuma alteração necessária; as LDs originais serão devolvidas conferidas.');
 
       progress('atualizacao', 2, `Atualizando ${targets.length} LD(s)`);
       let finished = 0;
-      const applied = await pool.map(
-        targets,
-        ({ ld, plan }) => ({
-          type: 'apply',
-          payload: {
-            fileId: ld.fileId,
-            mapping: ld.mapping,
-            mappings: enabledMappings(ld),
-            plan,
-            options: { verify: generateOptions.verify !== false, level: 9 },
-          },
-          fileId: ld.fileId,
-        }),
-        (result) => {
-          finished++;
-          if (result.ok && result.value.ok) {
-            metrics.cellsWritten += result.value.counters.authorizedCells;
-            metrics.documentsProcessed += result.value.results.filter((r) => r.outcome === 'APLICADO').length;
-          }
-          progress('atualizacao', Math.round((finished / Math.max(1, targets.length)) * 100), `${finished}/${targets.length} LD(s) atualizada(s)`);
-          publishMetrics();
-        }
-      );
-      checkCancelled();
-
       const outputs = [];
       const occurrences = [];
       const failures = [];
       const outcomeByRecord = new Map();
+      state.outputs = outputs;
 
-      for (let i = 0; i < applied.length; i++) {
-        const result = applied[i];
-        const target = targets[i];
-        if (!result.ok) {
-          failures.push({ file: target.ld.name, error: result.error.message });
-          log('error', `Falha ao atualizar ${target.ld.name}`, result.error.message);
-          continue;
-        }
-        const value = result.value;
-        occurrences.push(...(value.occurrences || []));
-        for (const item of value.results || []) outcomeByRecord.set(item.recordId, item);
-
-        if (!value.ok) {
-          failures.push({ file: target.ld.name, error: value.error });
-          log('error', `Atualização revertida em ${target.ld.name}`, value.error);
-          continue;
-        }
-        outputs.push({
+      function outputFrom(value, target) {
+        return {
           name: value.outputName,
           source: value.name,
-          sheets: (value.sheetNames || [value.sheetName]).filter(Boolean).join(' + '),
+          sourceFileId: target.ld.fileId,
+          sheets: (value.sheetNames || [value.sheetName]).filter(Boolean).join(' + ') || sheetLabel(target.ld),
           bytes: value.bytes,
           size: value.bytes.length,
           hash: value.outputHash,
@@ -464,8 +437,51 @@
           integrity: value.integrity.verified ? (value.integrity.ok ? 'APROVADA' : 'REPROVADA') : 'NÃO VERIFICADA',
           comparedCells: value.integrity.comparedCells,
           guards: value.guards,
-        });
+          unchanged: !!value.unchanged,
+        };
       }
+
+      await pool.map(
+        targets,
+        ({ ld, plan }) => ({
+          type: 'apply',
+          payload: {
+            fileId: ld.fileId,
+            mapping: ld.mapping,
+            mappings: enabledMappings(ld),
+            plan,
+            options: { verify: generateOptions.verify !== false, level: generateOptions.compressionLevel ?? 1 },
+          },
+          fileId: ld.fileId,
+        }),
+        (result) => {
+          finished++;
+          if (result.ok && result.value.ok) {
+            const value = result.value;
+            const output = outputFrom(value, result.item);
+            outputs.push(output);
+            occurrences.push(...(value.occurrences || []));
+            for (const item of value.results || []) outcomeByRecord.set(item.recordId, item);
+            metrics.cellsWritten += value.counters.authorizedCells;
+            metrics.documentsProcessed += value.results.filter((r) => r.outcome === 'APLICADO').length;
+            // A interface pode liberar cada LD assim que ela fica pronta, sem
+            // aguardar auditoria, log e ZIP do lote inteiro.
+            emit('output', { output, finished, total: targets.length });
+          } else {
+            const error = result.ok ? result.value.error : result.error.message;
+            failures.push({ file: result.item.ld.name, error });
+            log('error', `Falha ao atualizar ${result.item.ld.name}`, error);
+          }
+          metrics.ldsProcessed = finished;
+          progress('atualizacao', Math.round((finished / Math.max(1, targets.length)) * 100), `${finished}/${targets.length} LD(s) atualizada(s)`);
+          publishMetrics();
+        }
+      );
+      checkCancelled();
+      // Mantém a ordem de carregamento no pacote e na lista final, ainda que
+      // os workers terminem os arquivos em ordens diferentes.
+      const order = new Map(state.lds.map((ld, index) => [ld.fileId, index]));
+      outputs.sort((a, b) => (order.get(a.sourceFileId) ?? 0) - (order.get(b.sourceFileId) ?? 0));
 
       state.timings.atualizacao = Date.now() - started;
 
@@ -504,7 +520,9 @@
         'Relação GRCON': state.relation.name,
         'Fonte identificada': state.relation.sourceLabel || 'Histórico GRCON',
         'Quantidade de LD carregadas': state.lds.length,
-        'Quantidade de LD atualizadas': outputs.length,
+        'Quantidade de LD entregues': outputs.length,
+        'Quantidade de LD atualizadas': outputs.filter((o) => !o.unchanged).length,
+        'Quantidade de LD sem alteração devolvidas': outputs.filter((o) => o.unchanged).length,
         'Quantidade de abas atualizadas': analysis.stats.sheetsWithChanges,
         'Quantidade de documentos (relação)': analysis.stats.relationDocuments,
         ...(conferenceStats

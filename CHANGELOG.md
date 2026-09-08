@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.3.0 — Entrega garantida e geração mais rápida
+
+- Toda LD legível carregada passa a ser entregue, mesmo quando já estava correta ou quando a relação não gera nenhuma alteração para ela. Nesses casos, o arquivo devolvido é byte a byte idêntico ao original.
+- Cada LD aparece para download assim que termina sua própria atualização e conferência; não é mais necessário esperar a auditoria e o pacote ZIP completo.
+- XLSX/XLSM deixam de ser recomprimidos no nível máximo e são armazenados sem recompressão no ZIP externo, reduzindo fortemente o tempo gasto na etapa final.
+- A interface não mostra mais uma mensagem enganosa de sucesso quando alguma LD falha: os arquivos concluídos permanecem disponíveis e as falhas são destacadas nominalmente.
+- Artefatos de gerações anteriores são invalidados ao começar um novo lote, evitando downloads desatualizados.
+- A data gravada na LD passa a vir exclusivamente da data de envio da GRDT/eGRDT (`DATA EGRDT`, `Data da GRDT` ou `Data de envio da GRDT`). `Data da confirmação` e `Data Efetiva de Emissão` da Conferência ficam apenas como evidência informativa e nunca substituem a data de envio.
+- Quando o mesmo documento possui mais de uma GRDT confirmada na Conferência, é usada a GRDT com a data de envio mais recente; em empate, prevalece a última linha do relatório. Tentativas não confirmadas continuam sem alterar a LD.
+
+
 ## 2.2.0
 
 O Vincula passa a aceitar automaticamente **duas fontes do GRCON** na mesma área de importação:
@@ -14,7 +25,7 @@ O Vincula passa a aceitar automaticamente **duas fontes do GRCON** na mesma áre
 - Também são aceitos aliases seguros como `Revisão enviada na GRDT`, `Número da eGRDT` e `Data Efetiva de Emissão`, tolerando caixa, acentos e espaços sem usar correspondências genéricas demais.
 - `Revisão enviada` é a revisão levada para a LD; `Revisão encontrada` não é confundida com ela.
 - O número da GRDT/eGRDT é preservado integralmente como aparece no relatório.
-- A data confirmada aceita tanto o cabeçalho atual `Data da confirmação` quanto `Data Efetiva de Emissão`; data+hora é convertida para a data civil que deve ser gravada na LD.
+- A data usada no preenchimento é exclusivamente a data de envio da GRDT/eGRDT. A data de confirmação permanece disponível somente para auditoria.
 
 ### Regra de postagem confirmada
 
@@ -26,7 +37,7 @@ O Vincula passa a aceitar automaticamente **duas fontes do GRCON** na mesma áre
 ### Interface, validação e auditoria
 
 - A tela de upload informa que aceita os dois formatos e mostra a fonte identificada após a leitura.
-- Quando a fonte é a Conferência, a associação de colunas apresenta `Revisão enviada na GRDT`, `Data efetiva / confirmação`, `Conferência / postagem confirmada` e `Status SIGEM`.
+- Quando a fonte é a Conferência, a associação de colunas apresenta `Revisão enviada na GRDT`, `Data de envio da GRDT/eGRDT`, `Data da confirmação (somente informativa)`, `Conferência / postagem confirmada` e `Status SIGEM`.
 - Colunas obrigatórias ausentes geram mensagens específicas em vez de apenas `Arquivo inválido`.
 - O resumo/auditoria registra a fonte identificada, quantidade total de linhas da Conferência, confirmações utilizadas e linhas não confirmadas ignoradas.
 
