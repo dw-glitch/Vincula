@@ -40,7 +40,7 @@
   const FLAG_LABEL = {
     DUPLICADO_RELACAO: 'Duplicado na relação',
     DUPLICADO_LD: 'Duplicado na LD',
-    DATA_INVALIDA: 'Data da postagem inválida',
+    DATA_INVALIDA: 'Data enviada na GRDT inválida',
     GRDT_AUSENTE: 'GRDT ausente na relação',
     DATA_TEXTO: 'Data convertida de texto para data do Excel',
     CORRESPONDENCIA_APROXIMADA: 'Correspondência aproximada — confira',
@@ -50,6 +50,10 @@
   function existingDateIso(entry) {
     if (entry.beforeDateSerial === null || entry.beforeDateSerial === undefined) return null;
     return D.formatIsoDate(D.serialToDate(entry.beforeDateSerial, false));
+  }
+
+  function sourceDateOrigin(source) {
+    return source.dateSourceLabel || source.dateSource || 'Relação GRCON';
   }
 
   /**
@@ -77,7 +81,8 @@
 
     for (const [document, source] of relation.selected) {
       let matches = global.byDocument.get(document);
-      const duplicatedInRelation = (relation.duplicates.find((d) => d.document === document)?.count || 0) > 1;
+      const duplicateInfo = relation.duplicates.find((d) => d.document === document);
+      const duplicatedInRelation = (duplicateInfo?.count || 0) > 1;
 
       // Correspondência exata falhou: com a correspondência flexível ligada,
       // tenta a chave frouxa (zero à esquerda / pontuação / espaço ignorados).
@@ -101,6 +106,9 @@
       }
 
       if (!matches || !matches.length) {
+        const baseReason = ambiguousLoose
+          ? 'Documento pertence a outra LD. Correspondência flexível encontrou mais de um documento diferente com a mesma chave aproximada; não resolvido automaticamente para evitar juntar documentos errados.'
+          : 'Documento pertence a outra LD.';
         const record = {
           id: ++sequence,
           document,
@@ -117,12 +125,12 @@
           afterDate: source.dateText,
           beforeRevisao: '',
           afterRevisao: source.revision,
+          sourceDateRaw: source.sourceDateRaw || '',
+          sourceDateOrigin: sourceDateOrigin(source),
           grdtWillChange: false,
           dateWillChange: false,
           revisionWillChange: false,
-          reason: ambiguousLoose
-            ? 'Documento pertence a outra LD. Correspondência flexível encontrou mais de um documento diferente com a mesma chave aproximada; não resolvido automaticamente para evitar juntar documentos errados.'
-            : 'Documento pertence a outra LD.',
+          reason: `${baseReason} Origem da data: ${sourceDateOrigin(source)}${source.sourceDateRaw ? ` ("${source.sourceDateRaw}")` : ''}.`,
         };
         records.push(record);
         missing.push(record);
@@ -166,10 +174,17 @@
         }
 
         const reasons = [];
+        if (duplicatedInRelation) {
+          reasons.push(
+            source.relationType === 'conference'
+              ? `Relação: ${duplicateInfo.count} ocorrências confirmadas; selecionada a ocorrência com data de envio mais recente, linha ${source.row}.`
+              : `Relação: ${duplicateInfo.count} ocorrências; vence a última, linha ${source.row}.`
+          );
+        } else {
+          reasons.push(`Relação: ocorrência única, linha ${source.row}.`);
+        }
         reasons.push(
-          duplicatedInRelation
-            ? `Relação: ${relation.duplicates.find((d) => d.document === document).count} ocorrências; vence a última, linha ${source.row}.`
-            : `Relação: ocorrência única, linha ${source.row}.`
+          `Origem da data: ${sourceDateOrigin(source)}${source.sourceDateRaw ? ` ("${source.sourceDateRaw}")` : ''}.`
         );
         reasons.push(
           matches.length > 1
@@ -180,7 +195,7 @@
         if (!sheetHasDate) reasons.push(`A aba "${sheetName}" não tem coluna de data mapeada; o campo não é gravado nela.`);
         if (!source.dateValid) {
           reasons.push(
-            `Data da postagem inválida ("${source.sourceDateRaw || 'vazio'}"); a Data Efetiva de Emissão da LD é preservada.`
+            `Data de origem inválida ("${source.sourceDateRaw || 'vazio'}"); a Data Efetiva de Emissão da LD é preservada.`
           );
         }
         if (!hasGrdt) reasons.push('GRDT sem valor válido na relação; a GRDT da LD é preservada.');
@@ -212,6 +227,8 @@
           afterDate: source.dateValid ? source.dateText : entry.beforeDate,
           beforeRevisao: entry.beforeRevisao,
           afterRevisao: revisionWillChange ? source.revision : entry.beforeRevisao,
+          sourceDateRaw: source.sourceDateRaw || '',
+          sourceDateOrigin: sourceDateOrigin(source),
           grdtWillChange,
           dateWillChange,
           revisionWillChange,
