@@ -109,6 +109,9 @@
         const baseReason = ambiguousLoose
           ? 'Documento pertence a outra LD. Correspondência flexível encontrou mais de um documento diferente com a mesma chave aproximada; não resolvido automaticamente para evitar juntar documentos errados.'
           : 'Documento pertence a outra LD.';
+        const originSuffix = source.relationType === 'conference'
+          ? ` Origem da data: ${sourceDateOrigin(source)}${source.sourceDateRaw ? ` ("${source.sourceDateRaw}")` : ''}.`
+          : '';
         const record = {
           id: ++sequence,
           document,
@@ -130,7 +133,7 @@
           grdtWillChange: false,
           dateWillChange: false,
           revisionWillChange: false,
-          reason: `${baseReason} Origem da data: ${sourceDateOrigin(source)}${source.sourceDateRaw ? ` ("${source.sourceDateRaw}")` : ''}.`,
+          reason: baseReason + originSuffix,
         };
         records.push(record);
         missing.push(record);
@@ -183,9 +186,11 @@
         } else {
           reasons.push(`Relação: ocorrência única, linha ${source.row}.`);
         }
-        reasons.push(
-          `Origem da data: ${sourceDateOrigin(source)}${source.sourceDateRaw ? ` ("${source.sourceDateRaw}")` : ''}.`
-        );
+        if (source.relationType === 'conference') {
+          reasons.push(
+            `Origem da data: ${sourceDateOrigin(source)}${source.sourceDateRaw ? ` ("${source.sourceDateRaw}")` : ''}.`
+          );
+        }
         reasons.push(
           matches.length > 1
             ? `LD: ${matches.length} ocorrências do documento; todas atualizadas. Esta: ${file.name} · ${sheetName} · linha ${entry.row}.`
@@ -195,7 +200,9 @@
         if (!sheetHasDate) reasons.push(`A aba "${sheetName}" não tem coluna de data mapeada; o campo não é gravado nela.`);
         if (!source.dateValid) {
           reasons.push(
-            `Data de origem inválida ("${source.sourceDateRaw || 'vazio'}"); a Data Efetiva de Emissão da LD é preservada.`
+            source.relationType === 'conference'
+              ? `Data de origem inválida ("${source.sourceDateRaw || 'vazio'}"); a Data Efetiva de Emissão da LD é preservada.`
+              : `Data da postagem inválida ("${source.sourceDateRaw || 'vazio'}"); a Data Efetiva de Emissão da LD é preservada.`
           );
         }
         if (!hasGrdt) reasons.push('GRDT sem valor válido na relação; a GRDT da LD é preservada.');
