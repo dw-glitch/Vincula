@@ -100,6 +100,28 @@
       optional: ['GERACAO', 'POSTAGEM'],
       forbidden: ['EFETIVA', 'CONFIRMACAO', 'VENCIMENTO'],
     },
+    /**
+     * Fonte oficial de data para a relação Conferência SIGEM × Histórico.
+     * O cabeçalho real hoje é "ultimo envio"; as demais grafias são aliases
+     * compatíveis para não depender de caixa, acento, underscore ou espaços.
+     */
+    dateSent: {
+      label: 'Data enviada na GRDT',
+      exact: [
+        'ULTIMO ENVIO',
+        'DATA DO ULTIMO ENVIO',
+        'DATA ULTIMO ENVIO',
+        'DATA DE ENVIO DA GRDT',
+        'DATA DE ENVIO GRDT',
+        'DATA ENVIADA NA GRDT',
+        'DATA ENVIADA GRDT',
+        'DATA DE ENVIO DA EGRDT',
+        'DATA DE ENVIO EGRDT',
+      ],
+      required: [['ULTIMO', 'DATA'], ['ENVIO', 'ENVIADA']],
+      optional: ['ULTIMO', 'DATA', 'ENVIO', 'ENVIADA', 'GRDT', 'EGRDT'],
+      forbidden: ['CONFIRMACAO', 'CONFERENCIA', 'PROCESSAMENTO', 'CONSULTA'],
+    },
     dateGrdt: {
       label: 'Data da GRDT / eGRDT',
       exact: [
@@ -172,9 +194,9 @@
   };
 
   /**
-   * Data confirmada usada pela Conferência Histórico × Consulta Geral.
-   * Nunca inclui DATA EGRDT: quando as duas existem, a efetiva/confirmação
-   * deve vencer e a data da GRDT permanece em um campo separado.
+   * Data de confirmação continua reconhecível para diagnóstico, mas NÃO é
+   * fonte de preenchimento das LDs no fluxo de Conferência. A fonte oficial
+   * é "ultimo envio" (ou DATA EGRDT somente como compatibilidade legada).
    */
   FIELDS.conferenceDate = {
     label: 'Data Efetiva de Emissão / Data da confirmação',
@@ -300,8 +322,14 @@
     return scoreHeader('dateEffective', text) >= 55;
   }
 
+  function isSentDateHeader(text) {
+    return scoreHeader('dateSent', text) >= 55;
+  }
+
   function isGrdtDateHeader(text) {
-    return scoreHeader('dateGrdt', text) >= 55;
+    // Para validação da relação de Conferência, "ultimo envio" é uma data de
+    // envio da GRDT e deve ser aceita no mesmo ponto em que DATA EGRDT já era.
+    return scoreHeader('dateGrdt', text) >= 55 || isSentDateHeader(text);
   }
 
   function isRelationDateHeader(text) {
@@ -323,7 +351,7 @@
     relationConference: {
       document: 'document',
       grdt: 'grdt',
-      date: 'conferenceDate',
+      date: 'dateSent',
       dateGrdt: 'dateGrdt',
       revision: 'revisionSent',
       conference: 'conferenceStatus',
@@ -447,9 +475,9 @@
     );
 
     if (conferenceSignature) {
-      const dateEffectiveCol = conference.dateCol || null;
+      const dateSentCol = conference.dateCol || null;
       const dateGrdtCol = conference.dateGrdtCol || null;
-      const resolvedDateCol = dateEffectiveCol || dateGrdtCol || null;
+      const resolvedDateCol = dateSentCol || dateGrdtCol || null;
       const required = [
         conference.documentCol,
         conference.grdtCol,
@@ -460,23 +488,26 @@
       return {
         ...conference,
         dateCol: resolvedDateCol,
-        dateEffectiveCol,
+        dateSentCol,
+        // Data de confirmação é deliberadamente excluída da origem de escrita.
+        dateEffectiveCol: null,
         dateGrdtCol,
-        dateFallback: !dateEffectiveCol && !!dateGrdtCol,
+        dateFallback: !dateSentCol && !!dateGrdtCol,
         relationType: 'conference',
-        sourceLabel: 'Conferência Histórico × Consulta Geral',
+        sourceLabel: 'Conferência SIGEM × Histórico',
         sourceShortLabel: 'Conferência',
-        sourceDateLabel: dateEffectiveCol
-          ? 'Data efetiva / confirmação'
+        sourceDateLabel: dateSentCol
+          ? 'ultimo envio'
           : dateGrdtCol
-            ? 'Data da GRDT (fallback legado)'
-            : 'Data efetiva / confirmação',
+            ? 'DATA EGRDT (fallback legado)'
+            : 'Data enviada na GRDT',
         confidence: required === 5 ? 'alta' : required >= 4 ? 'media' : 'baixa',
       };
     }
 
     return {
       ...history,
+      dateSentCol: null,
       dateEffectiveCol: null,
       dateGrdtCol: history.dateGrdtCol || (history.dateCol && isGrdtDateHeader(getValue(history.headerRow, history.dateCol)) ? history.dateCol : null),
       dateFallback: false,
@@ -499,6 +530,7 @@
     profileForSheet,
     isPostingDateHeader,
     isEffectiveDateHeader,
+    isSentDateHeader,
     isGrdtDateHeader,
     isRelationDateHeader,
     isConferenceDateHeader,
