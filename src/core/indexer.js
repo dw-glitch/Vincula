@@ -54,20 +54,52 @@
   }
 
   /**
+   * Na Conferência, uma mesma revisão pode ter passado por mais de uma GRDT.
+   * Entre as ocorrências CONFIRMADAS, vence a data de envio válida mais
+   * recente; em empate de data (ou quando ambas não têm data válida), vence a
+   * linha física mais recente. Assim GRDT, revisão e data sempre vêm da mesma
+   * ocorrência — nunca montamos um registro combinando linhas diferentes.
+   */
+  function latestConferenceOccurrence(list) {
+    let winner = null;
+    for (const entry of list) {
+      if (!winner) {
+        winner = entry;
+        continue;
+      }
+      if (entry.dateValid && !winner.dateValid) {
+        winner = entry;
+        continue;
+      }
+      if (!entry.dateValid && winner.dateValid) continue;
+      if (entry.dateValid && winner.dateValid) {
+        if (entry.dateIso > winner.dateIso) {
+          winner = entry;
+          continue;
+        }
+        if (entry.dateIso < winner.dateIso) continue;
+      }
+      if (entry.row >= winner.row) winner = entry;
+    }
+    return winner;
+  }
+
+  /**
    * Índice da Relação GRCON.
    *
    * Histórico normal: comportamento legado, em que todas as linhas válidas de
    * documento entram no índice e a última ocorrência física vence.
    *
-   * Conferência Histórico × Consulta Geral: todas as linhas ficam registradas
-   * em `rows` para auditoria, mas SOMENTE linhas cuja coluna Conferência diga
+   * Conferência SIGEM × Histórico: todas as linhas ficam registradas em
+   * `rows` para auditoria, mas SOMENTE linhas cuja coluna Conferência diga
    * explicitamente que a postagem foi confirmada entram em `selected` e podem
    * chegar à lógica de atualização das LDs.
    *
-   * A data da GRDT e a data efetiva/confirmação são mantidas separadas. Quando
-   * as duas existem, somente a efetiva alimenta `dateText/dateIso`; DATA EGRDT
-   * permanece disponível em `dateGrdt*`. O fallback para DATA EGRDT só ocorre
-   * quando o relatório não possui coluna efetiva, preservando o fluxo legado.
+   * A fonte de data aplicada é SEMPRE `mapping.dateCol`. Pela autodetecção da
+   * Conferência essa coluna é `ultimo envio`; se o usuário trocar manualmente
+   * o mapeamento, a escolha manual passa a ser a fonte. Data de confirmação
+   * nunca é promovida automaticamente. DATA EGRDT continua apenas como
+   * fallback legado quando `ultimo envio` não existe.
    */
   function buildRelationIndex(wb, model, mapping) {
     const documentCol = Number(mapping.documentCol);
@@ -106,20 +138,28 @@
 
       let selectedDate;
       let dateSource;
+      let dateSourceLabel;
       if (relationType === 'conference') {
-        if (dateEffectiveCol) {
-          selectedDate = effectiveDate;
-          dateSource = 'effective';
-        } else if (dateGrdtCol || mapping.dateFallback) {
-          selectedDate = dateGrdtCol ? grdtDate : mappedDate;
+        // A coluna efetivamente mapeada é soberana. Na carga automática ela é
+        // `ultimo envio`; depois de uma escolha manual, é a coluna escolhida.
+        selectedDate = mappedDate;
+        if (mapping.manualDateSelection) {
+          dateSource = 'manual';
+          dateSourceLabel = mapping.sourceDateLabel || 'seleção manual do usuário';
+        } else if (normalizeHeader(mapping.sourceDateLabel) === 'ULTIMO ENVIO') {
+          dateSource = 'ultimo-envio';
+          dateSourceLabel = 'ultimo envio';
+        } else if (mapping.dateFallback || (dateGrdtCol && mappedDateCol === dateGrdtCol)) {
           dateSource = 'grdt-fallback';
+          dateSourceLabel = 'DATA EGRDT (fallback legado)';
         } else {
-          selectedDate = mappedDate;
-          dateSource = 'conference-legacy';
+          dateSource = 'conference-mapped';
+          dateSourceLabel = mapping.sourceDateLabel || 'coluna de data mapeada';
         }
       } else {
         selectedDate = mappedDateCol ? mappedDate : grdtDate;
         dateSource = dateGrdtCol && mappedDateCol === dateGrdtCol ? 'grdt-legacy' : 'history';
+        dateSourceLabel = mapping.sourceDateLabel || 'data do Histórico GRCON';
       }
 
       const conferenceStatus = conferenceCol ? X.cellDisplay(conferenceCell) : '';
@@ -137,6 +177,7 @@
         sigemStatus,
         confirmedPost,
         dateSource,
+        dateSourceLabel,
         sourceDateRaw: selectedDate.raw,
         dateIso: selectedDate.iso,
         dateText: selectedDate.text,
@@ -173,7 +214,7 @@
     const selected = new Map();
     const duplicates = [];
     for (const [document, list] of occurrences) {
-      const winner = list[list.length - 1];
+      const winner = relationType === 'conference' ? latestConferenceOccurrence(list) : list[list.length - 1];
       selected.set(document, winner);
       if (list.length > 1) {
         const signatures = new Set(list.map((x) => `${squash(x.grdt)} ${squash(x.revision)} ${x.dateText}`));
@@ -182,6 +223,7 @@
           count: list.length,
           selectedRow: winner.row,
           conflict: signatures.size > 1,
+          selectionRule: relationType === 'conference' ? 'data de envio confirmada mais recente' : 'última ocorrência física',
           candidates: list.map((x) => ({
             row: x.row,
             grdt: x.grdt,
@@ -189,6 +231,7 @@
             dateText: x.dateText,
             dateValid: x.dateValid,
             dateSource: x.dateSource,
+            dateSourceLabel: x.dateSourceLabel,
             dateEffectiveText: x.dateEffectiveText,
             dateGrdtText: x.dateGrdtText,
             conferenceStatus: x.conferenceStatus,
@@ -215,7 +258,9 @@
       duplicates,
       totalRows: rows.length,
       uniqueDocuments: selected.size,
-      invalidDates: eligibleRows.filter((x) => !x.dateValid),
+      // Pendência de data é avaliada sobre a ocorrência que REALMENTE venceu,
+      // evitando marcar um documento por causa de uma GRDT antiga descartada.
+      invalidDates: [...selected.values()].filter((x) => !x.dateValid),
       conferenceStats,
     };
   }
@@ -298,6 +343,7 @@
   V.indexer = {
     CONFIRMED_CONFERENCE,
     isConfirmedConferenceStatus,
+    latestConferenceOccurrence,
     buildRelationIndex,
     buildLdEntries,
     buildGlobalIndex,

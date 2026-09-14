@@ -2,8 +2,9 @@
  * Vincula — refinamento de UX da origem da Relação GRCON.
  *
  * Mantém a tela principal simples e acrescenta apenas o necessário quando a
- * relação identificada é a Conferência Histórico × Consulta Geral: fonte
- * detectada, rótulos semânticos corretos e os campos de conferência/status.
+ * relação identificada é a Conferência SIGEM × Histórico: fonte detectada,
+ * rótulos semânticos corretos, prioridade de `ultimo envio` e os campos de
+ * conferência/status sem retirar do usuário o controle manual do mapeamento.
  */
 (function () {
   'use strict';
@@ -45,15 +46,23 @@
     return (row, col) => values.get(row * 16384 + col) || '';
   }
 
+  function selectedHeader(select) {
+    const text = select?.selectedOptions?.[0]?.textContent || '';
+    return text.replace(/^[A-Z]+\s*·\s*/i, '').trim();
+  }
+
   /**
    * Ao trocar manualmente a aba, app.js reaplica os quatro campos legados.
    * Reconstituímos os metadados exclusivos da Conferência usando exatamente o
    * mesmo detector de cabeçalhos do motor, sem depender da posição da coluna.
    *
-   * Importante: DATA EGRDT nunca substitui a Data Efetiva/Confirmação quando
-   * ambas existem. O primeiro campo fica em dateGrdtCol e o segundo em
-   * dateEffectiveCol/dateCol, evitando o mapeamento ambíguo que gerava o aviso
-   * "DATA EGRDT não é reconhecida como Data Efetiva de Emissão".
+   * Regra obrigatória da Conferência:
+   *   1) escolha manual do usuário;
+   *   2) `ultimo envio` detectado automaticamente;
+   *   3) DATA EGRDT apenas como fallback legado.
+   *
+   * Data de confirmação pode existir no arquivo e no dropdown, mas nunca é
+   * escolhida automaticamente como data de preenchimento da LD.
    */
   function refreshConferenceMapping() {
     const rel = relation();
@@ -73,30 +82,32 @@
     map.relationType = 'conference';
     map.sourceLabel = detected.sourceLabel;
     map.sourceShortLabel = detected.sourceShortLabel;
-    map.sourceDateLabel = detected.sourceDateLabel;
     map.roleLabel = detected.sourceLabel;
-    map.dateEffectiveCol = detected.dateEffectiveCol || null;
+    map.dateSentCol = detected.dateSentCol || null;
+    map.dateEffectiveCol = null;
     map.dateGrdtCol = detected.dateGrdtCol || null;
-    map.dateFallback = !!detected.dateFallback;
 
-    const currentDateHeader = map.dateCol
-      ? lookup(Number(map.headerRow || detected.headerRow), Number(map.dateCol))
-      : '';
-    const currentIsEffective = V.headers.isConferenceDateHeader(currentDateHeader);
-    const currentIsGrdt = V.headers.isGrdtDateHeader(currentDateHeader);
-
-    if (detected.dateEffectiveCol) {
-      // A data real confirmada sempre vence quando existe no relatório.
-      if (!currentIsEffective || Number(map.dateCol) !== Number(detected.dateEffectiveCol)) {
-        map.dateCol = detected.dateEffectiveCol;
-      }
+    // A escolha manual é estado persistente do mapeamento e nunca pode ser
+    // sobrescrita por MutationObserver, rerender, useEffect equivalente ou
+    // nova validação visual.
+    if (map.manualDateSelection && map.dateCol) {
       map.dateFallback = false;
+      if (!map.sourceDateLabel || !/^Seleção manual:/i.test(map.sourceDateLabel)) {
+        const header = lookup(Number(map.headerRow || detected.headerRow), Number(map.dateCol));
+        map.sourceDateLabel = `Seleção manual: ${header || 'coluna escolhida'}`;
+      }
+    } else if (detected.dateSentCol) {
+      map.dateCol = detected.dateSentCol;
+      map.dateFallback = false;
+      map.sourceDateLabel = 'ultimo envio';
     } else if (detected.dateGrdtCol) {
-      // Compatibilidade com relatórios antigos que só trazem DATA EGRDT.
-      if (!map.dateCol || (!currentIsGrdt && !currentIsEffective)) map.dateCol = detected.dateGrdtCol;
+      map.dateCol = detected.dateGrdtCol;
       map.dateFallback = true;
+      map.sourceDateLabel = 'DATA EGRDT (fallback legado)';
     } else if (!map.dateCol && detected.dateCol) {
       map.dateCol = detected.dateCol;
+      map.dateFallback = false;
+      map.sourceDateLabel = detected.sourceDateLabel || 'Data enviada na GRDT';
     }
 
     if (!map.revisionCol && detected.revisionCol) map.revisionCol = detected.revisionCol;
@@ -143,10 +154,6 @@
       const map = mapping();
       if (!map) return;
       map[fieldName] = select.value ? Number(select.value) : null;
-      if (fieldName === 'dateGrdtCol' && map.relationType === 'conference' && !map.dateEffectiveCol) {
-        map.dateCol = map[fieldName];
-        map.dateFallback = !!map[fieldName];
-      }
       invalidateConfirmation();
       refreshCompleteness();
     };
@@ -219,6 +226,11 @@
     }
   }
 
+  function decoratePreviewHeader() {
+    const headers = document.querySelectorAll('#previewTableWrap thead th');
+    if (headers[6]) headers[6].textContent = isConference() ? 'Data enviada na GRDT' : 'Nova data';
+  }
+
   function decorateMapping() {
     const rel = relation();
     const root = $('relationMapping');
@@ -245,33 +257,35 @@
     const revisionSelect = grid.querySelector('select[data-k="r"][data-f="revisionCol"]');
     if (!documentSelect || !dateSelect || !revisionSelect) return;
 
-    // Sincroniza o select legado com a coluna semanticamente correta.
+    // O dropdown já contém TODAS as colunas da planilha (é um clone do seletor
+    // base de app.js). Apenas sincronizamos o valor; não filtramos cabeçalhos.
     if (map.dateCol && dateSelect.value !== String(map.dateCol)) dateSelect.value = String(map.dateCol);
 
-    setFieldLabel(
-      fieldFor(dateSelect),
-      map.dateFallback ? 'Data da GRDT (fallback legado)' : 'Data efetiva / confirmação',
-      false
-    );
+    setFieldLabel(fieldFor(dateSelect), 'Data enviada na GRDT', false);
     setFieldLabel(fieldFor(revisionSelect), 'Revisão enviada na GRDT', false);
 
     ensureExtraField(
       grid,
       documentSelect,
       'dateGrdtCol',
-      'Data da GRDT / DATA EGRDT',
+      'DATA EGRDT (fallback legado)',
       map.dateGrdtCol,
       'Opcional'
     );
     ensureExtraField(grid, documentSelect, 'conferenceCol', 'Conferência / postagem confirmada', map.conferenceCol, 'Selecione…');
     ensureExtraField(grid, documentSelect, 'sigemStatusCol', 'Status SIGEM', map.sigemStatusCol, 'Opcional');
 
-    if (!root.querySelector('.conference-source-note')) {
-      const note = document.createElement('div');
+    let note = root.querySelector('.conference-source-note');
+    if (!note) {
+      note = document.createElement('div');
       note.className = 'file-meta conference-source-note';
-      note.textContent = 'Data Efetiva/Confirmação é usada como data real da postagem. DATA EGRDT é preservada separadamente como data da GRDT e só vira fallback quando não existe data efetiva. Somente registros confirmados como Postado/Confirmado pela Conferência podem atualizar a LD.';
       grid.insertAdjacentElement('afterend', note);
     }
+    note.textContent = map.manualDateSelection
+      ? `${map.sourceDateLabel || 'Seleção manual'} será usada como Data enviada na GRDT. Sua escolha manual tem prioridade e não será substituída automaticamente.`
+      : map.dateFallback
+        ? '`ultimo envio` não foi encontrado; DATA EGRDT está sendo usada somente como fallback legado. Data de confirmação não preenche a LD.'
+        : '`ultimo envio` foi reconhecido como Data enviada na GRDT e será usado para atualizar a LD. Data de confirmação não é usada para preencher a LD. Você pode alterar a coluna manualmente no dropdown.';
 
     refreshCompleteness();
   }
@@ -282,6 +296,7 @@
     try {
       decorateSourceSummary();
       decorateMapping();
+      decoratePreviewHeader();
     } finally {
       decorating = false;
     }
@@ -293,7 +308,7 @@
     const strong = relationDrop.querySelector('strong');
     const small = relationDrop.querySelector('small');
     if (strong) strong.textContent = 'Relação do GRCON';
-    if (small) small.textContent = 'Histórico do GRCON ou Conferência Histórico × Consulta Geral';
+    if (small) small.textContent = 'Histórico do GRCON ou Conferência SIGEM × Histórico';
   }
 
   // A função usada pela tela é a mesma referência de engine; o wrapper apenas
@@ -305,7 +320,49 @@
     return result;
   };
 
-  $('relationMapping')?.addEventListener('change', () => setTimeout(decorate, 0));
+  // Mensagem específica antes da análise: confirmação não é fallback válido.
+  const originalAnalyze = engine.analyze.bind(engine);
+  engine.analyze = async function (...args) {
+    const map = mapping();
+    if (map?.relationType === 'conference' && !map.dateCol) {
+      throw new Error('Selecione a coluna “Data enviada na GRDT”. O Vincula procura “ultimo envio” automaticamente e não usa “Data de confirmação” como substituta.');
+    }
+    return originalAnalyze(...args);
+  };
+
+  $('relationMapping')?.addEventListener('change', (event) => {
+    const target = event.target;
+    const map = mapping();
+    if (!map || !(target instanceof HTMLSelectElement)) {
+      setTimeout(decorate, 0);
+      return;
+    }
+
+    // Trocar de aba invalida uma escolha manual feita na aba anterior; a nova
+    // aba volta a ser detectada normalmente.
+    if (target.matches('select[data-k="r"].ms')) {
+      map.manualDateSelection = false;
+      map.sourceDateLabel = '';
+    }
+
+    // A alteração do seletor principal de data é uma decisão explícita do
+    // usuário. Ela passa a ter precedência sobre toda autodetecção posterior.
+    if (target.matches('select[data-k="r"][data-f="dateCol"]')) {
+      if (target.value) {
+        map.manualDateSelection = true;
+        map.dateCol = Number(target.value);
+        map.dateFallback = false;
+        map.sourceDateLabel = `Seleção manual: ${selectedHeader(target) || 'coluna escolhida'}`;
+      } else {
+        map.manualDateSelection = false;
+        map.dateCol = null;
+        map.sourceDateLabel = '';
+      }
+      invalidateConfirmation();
+    }
+
+    setTimeout(decorate, 0);
+  });
 
   const observer = new MutationObserver(() => {
     if (!decorating && relation()) setTimeout(decorate, 0);
