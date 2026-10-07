@@ -161,6 +161,34 @@
       optional: ['ATUAL', 'ULTIMA', 'NUMERO', 'CODIGO', 'COD', 'DOCUMENTO'],
       forbidden: ['DATA', 'GRDT', 'SITUACAO', 'STATUS', 'DESCRICAO', 'MOTIVO', 'ENVIADA', 'ENVIADO', 'ENCONTRADA', 'ENCONTRADO'],
     },
+    purpose: {
+      label: 'Propósito de emissão',
+      exact: [
+        'PROPOSITO',
+        'PROPOSITO DE EMISSAO',
+        'PROPOSITO DA EMISSAO',
+        'FINALIDADE',
+        'FINALIDADE DE EMISSAO',
+        'FINALIDADE DA EMISSAO',
+      ],
+      required: [['PROPOSITO', 'FINALIDADE']],
+      optional: ['DE', 'DA', 'EMISSAO', 'GRDT', 'EGRDT'],
+      forbidden: ['DATA', 'STATUS', 'SITUACAO'],
+    },
+    ldStatus: {
+      label: 'Status da LD',
+      exact: [
+        'STATUS',
+        'STATUS DA LD',
+        'STATUS DO DOCUMENTO',
+        'SITUACAO',
+        'SITUACAO DA LD',
+        'SITUACAO DO DOCUMENTO',
+      ],
+      required: [['STATUS', 'SITUACAO']],
+      optional: ['DA', 'DO', 'LD', 'DOCUMENTO'],
+      forbidden: ['SIGEM', 'CONFERENCIA', 'GRDT', 'EGRDT', 'DATA'],
+    },
   };
 
   /**
@@ -347,6 +375,7 @@
       date: 'relationDate',
       dateGrdt: 'dateGrdt',
       revision: 'revision',
+      purpose: 'purpose',
     },
     relationConference: {
       document: 'document',
@@ -354,11 +383,12 @@
       date: 'dateSent',
       dateGrdt: 'dateGrdt',
       revision: 'revisionSent',
+      purpose: 'purpose',
       conference: 'conferenceStatus',
       sigemStatus: 'sigemStatus',
     },
-    ld: { document: 'document', grdt: 'grdt', date: 'dateEffective', revision: 'revision' },
-    ldCv: { document: 'documentCv', grdt: 'grdt', date: 'dateEffective', revision: 'revision' },
+    ld: { document: 'document', grdt: 'grdt', date: 'dateEffective', revision: 'revision', status: 'ldStatus' },
+    ldCv: { document: 'documentCv', grdt: 'grdt', date: 'dateEffective', revision: 'revision', status: 'ldStatus' },
   };
 
   const SHEET_ROLES = {
@@ -399,6 +429,8 @@
     date: 1.2,
     dateGrdt: 0.35,
     revision: 0.7,
+    purpose: 0.4,
+    status: 0.4,
     conference: 1.4,
     sigemStatus: 0.35,
   };
@@ -448,6 +480,8 @@
       dateEffectiveCol: best.columns.date || null,
       dateGrdtCol: best.columns.dateGrdt || null,
       revisionCol: best.columns.revision || null,
+      purposeCol: best.columns.purpose || null,
+      statusCol: best.columns.status || null,
       conferenceCol: best.columns.conference || null,
       sigemStatusCol: best.columns.sigemStatus || null,
       columns: { ...best.columns },

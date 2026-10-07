@@ -9,7 +9,7 @@
   'use strict';
 
   const V = (scope.Vincula = scope.Vincula || {});
-  const { squash, looseDocumentKey } = V.util;
+  const { squash, looseDocumentKey, normalizeHeader } = V.util;
   const D = V.dates;
 
   const STATUS = {
@@ -54,6 +54,12 @@
 
   function sourceDateOrigin(source) {
     return source.dateSourceLabel || source.dateSource || 'Relação GRCON';
+  }
+
+  function statusFromPurpose(value) {
+    const normalized = normalizeHeader(value);
+    if (!normalized) return '';
+    return normalized === 'CANCELADO' ? 'CANCELADO' : 'EMITIDO';
   }
 
   /**
@@ -128,11 +134,15 @@
           afterDate: source.dateText,
           beforeRevisao: '',
           afterRevisao: source.revision,
+          beforeStatus: '',
+          afterStatus: statusFromPurpose(source.purpose),
+          purpose: source.purpose || '',
           sourceDateRaw: source.sourceDateRaw || '',
           sourceDateOrigin: sourceDateOrigin(source),
           grdtWillChange: false,
           dateWillChange: false,
           revisionWillChange: false,
+          statusWillChange: false,
           reason: baseReason + originSuffix,
         };
         records.push(record);
@@ -155,6 +165,7 @@
         const sheetHasGrdt = entry.hasGrdtCol !== false;
         const sheetHasDate = entry.hasDateCol !== false;
         const sheetHasRevision = entry.hasRevisionCol !== false;
+        const sheetHasStatus = entry.hasStatusCol !== false;
 
         const grdtValue = squash(source.grdt);
         const hasGrdt = grdtValue !== '' && !D.isBlankDateToken(grdtValue);
@@ -166,6 +177,11 @@
         const revisionValue = squash(source.revision);
         const hasRevision = revisionValue !== '';
         const revisionWillChange = hasRevision && sheetHasRevision && squash(entry.beforeRevisao) !== revisionValue;
+
+        const statusValue = statusFromPurpose(source.purpose);
+        const hasPurpose = statusValue !== '';
+        const statusWillChange =
+          hasPurpose && sheetHasStatus && normalizeHeader(entry.beforeStatus) !== normalizeHeader(statusValue);
 
         let dateWillChange = false;
         if (source.dateValid && sheetHasDate) {
@@ -198,6 +214,8 @@
         );
         if (!sheetHasGrdt) reasons.push(`A aba "${sheetName}" não tem coluna de GRDT mapeada; o campo não é gravado nela.`);
         if (!sheetHasDate) reasons.push(`A aba "${sheetName}" não tem coluna de data mapeada; o campo não é gravado nela.`);
+        if (hasPurpose && !sheetHasStatus) reasons.push(`A aba "${sheetName}" não tem coluna de Status mapeada; o Status da LD não é gravado nela.`);
+        if (!hasPurpose) reasons.push('Propósito de emissão vazio na relação; o Status da LD é preservado.');
         if (!source.dateValid) {
           reasons.push(
             source.relationType === 'conference'
@@ -214,9 +232,9 @@
           );
           approximateCount++;
         }
-        if (!grdtWillChange && !dateWillChange && !revisionWillChange) reasons.push('Valores já conferem; nenhuma escrita será executada.');
+        if (!grdtWillChange && !dateWillChange && !revisionWillChange && !statusWillChange) reasons.push('Valores já conferem; nenhuma escrita será executada.');
 
-        const willChange = grdtWillChange || dateWillChange || revisionWillChange;
+        const willChange = grdtWillChange || dateWillChange || revisionWillChange || statusWillChange;
         const record = {
           id: ++sequence,
           document,
@@ -234,11 +252,15 @@
           afterDate: source.dateValid ? source.dateText : entry.beforeDate,
           beforeRevisao: entry.beforeRevisao,
           afterRevisao: revisionWillChange ? source.revision : entry.beforeRevisao,
+          beforeStatus: entry.beforeStatus,
+          afterStatus: statusWillChange ? statusValue : entry.beforeStatus,
+          purpose: source.purpose || '',
           sourceDateRaw: source.sourceDateRaw || '',
           sourceDateOrigin: sourceDateOrigin(source),
           grdtWillChange,
           dateWillChange,
           revisionWillChange,
+          statusWillChange,
           reason: reasons.join(' '),
         };
         records.push(record);
@@ -258,6 +280,7 @@
             grdt: grdtWillChange ? source.grdt : null,
             dateIso: dateWillChange ? source.dateIso : null,
             revision: revisionWillChange ? source.revision : null,
+            status: statusWillChange ? statusValue : null,
           });
         }
       }
@@ -282,6 +305,7 @@
       grdtWrites: changing.filter((r) => r.grdtWillChange).length,
       dateWrites: changing.filter((r) => r.dateWillChange).length,
       revisionWrites: changing.filter((r) => r.revisionWillChange).length,
+      statusWrites: changing.filter((r) => r.statusWillChange).length,
       approximateMatches: approximateCount,
       sheetsWithChanges: sheetsTouched.size,
     };
@@ -300,5 +324,5 @@
     return record.status === filter;
   }
 
-  V.analyzer = { STATUS, STATUS_LABEL, FLAG, FLAG_LABEL, analyze, matchesFilter };
+  V.analyzer = { STATUS, STATUS_LABEL, FLAG, FLAG_LABEL, statusFromPurpose, analyze, matchesFilter };
 })(typeof self !== 'undefined' ? self : this);

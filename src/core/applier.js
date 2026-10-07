@@ -57,6 +57,7 @@
     const grdtCol = Number(mapping.grdtCol) || null;
     const dateCol = Number(mapping.dateCol) || null;
     const revisionCol = Number(mapping.revisionCol) || null;
+    const statusCol = Number(mapping.statusCol) || null;
 
     const snapshotXml = model.xml;
     const snapshotHash = await sha256Hex(snapshotXml);
@@ -69,6 +70,7 @@
     let grdtWrites = 0;
     let dateWrites = 0;
     let revisionWrites = 0;
+    let statusWrites = 0;
 
     if (guards.protected) {
       occurrences.push({
@@ -89,6 +91,9 @@
         if (item.dateIso && dateCol) targets.push({ field: 'DATA', col: dateCol });
         if (item.revision !== null && item.revision !== undefined && revisionCol) {
           targets.push({ field: 'REVISAO', col: revisionCol });
+        }
+        if (item.status !== null && item.status !== undefined && statusCol) {
+          targets.push({ field: 'STATUS', col: statusCol });
         }
         if (!targets.length) {
           results.push({ recordId: item.recordId, outcome: OUTCOME.IGNORADO, reason: 'Nada a gravar.' });
@@ -121,7 +126,9 @@
               ? editor.writeText(item.row, target.col, item.grdt)
               : target.field === 'REVISAO'
                 ? editor.writeText(item.row, target.col, item.revision)
-                : editor.writeDate(item.row, target.col, D.parseDate(item.dateIso, false));
+                : target.field === 'STATUS'
+                  ? editor.writeText(item.row, target.col, item.status)
+                  : editor.writeDate(item.row, target.col, D.parseDate(item.dateIso, false));
 
           if (!ok) {
             blockedFields.push(target.field);
@@ -139,6 +146,7 @@
           applied.push(target.field);
           if (target.field === 'GRDT') grdtWrites++;
           else if (target.field === 'REVISAO') revisionWrites++;
+          else if (target.field === 'STATUS') statusWrites++;
           else dateWrites++;
         }
 
@@ -182,7 +190,7 @@
           autoFilter: guards.hasAutoFilter,
         },
         integrity,
-        counters: { grdtWrites, dateWrites, revisionWrites, authorizedCells: editor.authorized.size },
+        counters: { grdtWrites, dateWrites, revisionWrites, statusWrites, authorizedCells: editor.authorized.size },
       };
     } catch (error) {
       return {

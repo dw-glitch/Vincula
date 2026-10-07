@@ -64,6 +64,8 @@
       mapping.dateGrdtCol,
       mapping.dateFallback ? 1 : 0,
       mapping.revisionCol,
+      mapping.purposeCol,
+      mapping.statusCol,
       mapping.conferenceCol,
       mapping.sigemStatusCol,
       mapping.relationType,
@@ -129,6 +131,8 @@
       dateGrdtCol: detected ? detected.dateGrdtCol || null : null,
       dateFallback: !!(detected && detected.dateFallback),
       revisionCol: detected ? detected.revisionCol : null,
+      purposeCol: detected ? detected.purposeCol : null,
+      statusCol: detected ? detected.statusCol : null,
       conferenceCol: detected ? detected.conferenceCol : null,
       sigemStatusCol: detected ? detected.sigemStatusCol : null,
       relationType: detected && detected.relationType ? detected.relationType : null,
@@ -319,6 +323,8 @@
       mapping.dateEffectiveCol,
       mapping.dateGrdtCol,
       mapping.revisionCol,
+      mapping.purposeCol,
+      mapping.statusCol,
       mapping.conferenceCol,
       mapping.sigemStatusCol,
     ]
@@ -552,10 +558,11 @@
         total.grdtWrites += c.grdtWrites || 0;
         total.dateWrites += c.dateWrites || 0;
         total.revisionWrites += c.revisionWrites || 0;
+        total.statusWrites += c.statusWrites || 0;
         total.authorizedCells += c.authorizedCells || 0;
         return total;
       },
-      { grdtWrites: 0, dateWrites: 0, revisionWrites: 0, authorizedCells: 0 }
+      { grdtWrites: 0, dateWrites: 0, revisionWrites: 0, statusWrites: 0, authorizedCells: 0 }
     );
 
     const verified = sheetResults.length > 0 && sheetResults.every((result) => result.integrity && result.integrity.verified);

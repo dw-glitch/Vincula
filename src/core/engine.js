@@ -267,7 +267,7 @@
 
       const seen = new Set();
       for (const target of targets) {
-        const { documentCol, grdtCol, dateCol, revisionCol, conferenceCol, sigemStatusCol } = target.mapping;
+        const { documentCol, grdtCol, dateCol, revisionCol, purposeCol, statusCol, conferenceCol, sigemStatusCol } = target.mapping;
         if (!documentCol || (target.primary ? !grdtCol || !dateCol : !grdtCol && !dateCol)) {
           throw new Error(
             target.primary
@@ -276,8 +276,8 @@
           );
         }
         const cols = target.relation
-          ? [documentCol, grdtCol, dateCol, revisionCol, conferenceCol, sigemStatusCol].filter(Boolean)
-          : [documentCol, grdtCol, dateCol, revisionCol].filter(Boolean);
+          ? [documentCol, grdtCol, dateCol, revisionCol, purposeCol, conferenceCol, sigemStatusCol].filter(Boolean)
+          : [documentCol, grdtCol, dateCol, revisionCol, statusCol].filter(Boolean);
         if (new Set(cols).size < cols.length) {
           throw new Error(`Uma mesma coluna foi associada a dois campos em "${target.label}".`);
         }
@@ -365,6 +365,7 @@
         record.relationSource = relationIndex.sourceLabel || state.relation.sourceLabel || '';
         record.conferenceStatus = source ? source.conferenceStatus || '' : '';
         record.sigemStatus = source ? source.sigemStatus || '' : '';
+        record.purpose = source ? source.purpose || '' : record.purpose || '';
       }
 
       analysis.relationIndex = relationIndex;
@@ -461,6 +462,7 @@
           grdtWrites: value.counters.grdtWrites,
           dateWrites: value.counters.dateWrites,
           revisionWrites: value.counters.revisionWrites,
+          statusWrites: value.counters.statusWrites || 0,
           integrity: value.integrity.verified ? (value.integrity.ok ? 'APROVADA' : 'REPROVADA') : 'NÃO VERIFICADA',
           comparedCells: value.integrity.comparedCells,
           guards: value.guards,
@@ -479,12 +481,14 @@
           record.grdtWillChange = outcome.appliedFields?.includes('GRDT') || false;
           record.dateWillChange = outcome.appliedFields?.includes('DATA') || false;
           record.revisionWillChange = outcome.appliedFields?.includes('REVISAO') || false;
+          record.statusWillChange = outcome.appliedFields?.includes('STATUS') || false;
           record.reason = `${record.reason} ${outcome.reason || ''}`.trim();
         } else if (outcome.blockedFields && outcome.blockedFields.length) {
           record.reason = `${record.reason} Campo(s) não gravado(s): ${outcome.blockedFields.join(', ')}. ${outcome.reason || ''}`.trim();
           if (outcome.blockedFields.includes('GRDT')) record.grdtWillChange = false;
           if (outcome.blockedFields.includes('DATA')) record.dateWillChange = false;
           if (outcome.blockedFields.includes('REVISAO')) record.revisionWillChange = false;
+          if (outcome.blockedFields.includes('STATUS')) record.statusWillChange = false;
         }
       }
 
@@ -520,10 +524,11 @@
         'Documentos duplicados na relação': analysis.stats.relationDuplicates,
         'Documentos duplicados nas LDs': analysis.stats.ldDuplicates,
         'Documentos sem alteração (ignorados)': analysis.stats.unchanged,
-        'Documentos alterados': analysis.records.filter((r) => r.grdtWillChange || r.dateWillChange || r.revisionWillChange).length,
+        'Documentos alterados': analysis.records.filter((r) => r.grdtWillChange || r.dateWillChange || r.revisionWillChange || r.statusWillChange).length,
         'Células GRDT gravadas': outputs.reduce((sum, o) => sum + o.grdtWrites, 0),
         'Células de data gravadas': outputs.reduce((sum, o) => sum + o.dateWrites, 0),
         'Células de revisão gravadas': outputs.reduce((sum, o) => sum + (o.revisionWrites || 0), 0),
+        'Células de status gravadas': outputs.reduce((sum, o) => sum + (o.statusWrites || 0), 0),
         'Datas de postagem inválidas': analysis.stats.invalidDates,
         'Ocorrências registradas': occurrences.length,
         'Erros': failures.length,

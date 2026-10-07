@@ -27,7 +27,13 @@ jobs:
           node --check src/core/headers.js
           node --check src/core/tasks.js
           node --check src/core/indexer.js
+          node --check src/core/analyzer.js
+          node --check src/core/applier.js
+          node --check src/core/audit.js
+          node --check src/core/engine.js
+          node --check src/ui/app.js
           node --check src/ui/conference-source.js
+          node --check tests/run.js
           node --check tests/conference-relation.js
 
       - name: Executar suíte funcional e de integridade

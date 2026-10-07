@@ -108,6 +108,7 @@
     const dateEffectiveCol = Number(mapping.dateEffectiveCol) || null;
     const dateGrdtCol = Number(mapping.dateGrdtCol) || null;
     const revisionCol = Number(mapping.revisionCol) || null;
+    const purposeCol = Number(mapping.purposeCol) || null;
     const conferenceCol = Number(mapping.conferenceCol) || null;
     const sigemStatusCol = Number(mapping.sigemStatusCol) || null;
     const relationType = mapping.relationType === 'conference' ? 'conference' : 'history';
@@ -129,6 +130,7 @@
       const effectiveDateCell = dateEffectiveCol ? X.getCell(model, row, dateEffectiveCol) : null;
       const grdtDateCell = dateGrdtCol ? X.getCell(model, row, dateGrdtCol) : null;
       const revisionCell = revisionCol ? X.getCell(model, row, revisionCol) : null;
+      const purposeCell = purposeCol ? X.getCell(model, row, purposeCol) : null;
       const conferenceCell = conferenceCol ? X.getCell(model, row, conferenceCol) : null;
       const sigemStatusCell = sigemStatusCol ? X.getCell(model, row, sigemStatusCol) : null;
 
@@ -173,6 +175,7 @@
         relationType,
         grdt: X.cellDisplay(grdtCell),
         revision: revisionCol ? X.cellDisplay(revisionCell) : '',
+        purpose: purposeCol ? X.cellDisplay(purposeCell) : '',
         conferenceStatus,
         sigemStatus,
         confirmedPost,
@@ -217,7 +220,7 @@
       const winner = relationType === 'conference' ? latestConferenceOccurrence(list) : list[list.length - 1];
       selected.set(document, winner);
       if (list.length > 1) {
-        const signatures = new Set(list.map((x) => `${squash(x.grdt)} ${squash(x.revision)} ${x.dateText}`));
+        const signatures = new Set(list.map((x) => `${squash(x.grdt)} ${squash(x.revision)} ${squash(x.purpose)} ${x.dateText}`));
         duplicates.push({
           document,
           count: list.length,
@@ -228,6 +231,7 @@
             row: x.row,
             grdt: x.grdt,
             revision: x.revision,
+            purpose: x.purpose,
             dateText: x.dateText,
             dateValid: x.dateValid,
             dateSource: x.dateSource,
@@ -276,6 +280,7 @@
     const grdtCol = Number(mapping.grdtCol) || null;
     const dateCol = Number(mapping.dateCol) || null;
     const revisionCol = Number(mapping.revisionCol) || null;
+    const statusCol = Number(mapping.statusCol) || null;
     const firstRow = Number(mapping.headerRow) + 1;
     const sheetPath = mapping.sheetPath || '';
     const sheetName = mapping.sheetName || '';
@@ -289,6 +294,7 @@
       const grdtCell = grdtCol ? X.getCell(model, row, grdtCol) : null;
       const dateCell = dateCol ? X.getCell(model, row, dateCol) : null;
       const revisionCell = revisionCol ? X.getCell(model, row, revisionCol) : null;
+      const statusCell = statusCol ? X.getCell(model, row, statusCol) : null;
 
       entries.push({
         fileId,
@@ -301,13 +307,16 @@
         beforeDate: X.cellDisplay(dateCell),
         beforeDateSerial: dateCell && dateCell.isDate ? D.truncateSerial(dateCell.numeric) : null,
         beforeRevisao: revisionCol ? X.cellDisplay(revisionCell) : '',
+        beforeStatus: statusCol ? X.cellDisplay(statusCell) : '',
         hasGrdtCol: !!grdtCol,
         hasDateCol: !!dateCol,
         hasRevisionCol: !!revisionCol,
+        hasStatusCol: !!statusCol,
         dateCellIsDate: !!(dateCell && dateCell.isDate),
         grdtHasFormula: !!(grdtCell && grdtCell.hasFormula),
         dateHasFormula: !!(dateCell && dateCell.hasFormula),
         revisionHasFormula: !!(revisionCell && revisionCell.hasFormula),
+        statusHasFormula: !!(statusCell && statusCell.hasFormula),
       });
     }
     return entries;

@@ -364,6 +364,7 @@ td.reason { color: var(--mut); max-width: 340px; white-space: nowrap; overflow: 
 .reason-empty { color: #c3ccd8; }
 td.empty { text-align: center; color: var(--mut); padding: 28px; }
 .table-wrap:not(.has-revision) .col-revision { display: none; }
+.table-wrap:not(.has-status) .col-status { display: none; }
 
 .pill { display: inline-flex; border-radius: 999px; padding: 4px 8px; font-size: 10px; font-weight: 900; text-transform: uppercase; }
 .pill.atualizar { background: #e5f5ee; color: var(--g); }
