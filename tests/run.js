@@ -684,6 +684,9 @@ async function main() {
     // junto revisão, GRDT e propósito; não pode reaproveitar o propósito antigo.
     [{ text: 'DOC-S05' }, { text: 'GR-105-A' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'A' }, { text: 'CONSTRUÇÃO' }],
     [{ text: 'DOC-S05' }, { text: 'GR-105-B' }, { dateSerial: SERIAL_2026_02_02, style: STYLE.DATE }, { text: 'B' }, { text: 'Cancelado' }],
+    // Status é a única diferença: garante que a alteração seja planejada mesmo
+    // quando GRDT, data e revisão já conferem.
+    [{ text: 'DOC-S06' }, { text: 'GR-106' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: '0' }, { text: 'Construção' }],
   ];
 
   const statusLdRows = [
@@ -699,6 +702,7 @@ async function main() {
     [{ text: 'DOC-S03' }, { text: 'OLD-3' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'OLD' }, { text: 'CANCELADO' }],
     [{ text: 'DOC-S04' }, { text: 'OLD-4' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'OLD' }, { text: 'PENDENTE' }],
     [{ text: 'DOC-S05' }, { text: 'OLD-5' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'OLD' }, { text: 'EMITIDO' }],
+    [{ text: 'DOC-S06' }, { text: 'GR-106' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: '0' }, { text: 'PENDENTE' }],
   ];
 
   const statusRelationBytes = await buildWorkbook(JSZip, [{ name: 'Relação', rows: statusRelationRows, options: {} }]);
@@ -726,7 +730,15 @@ async function main() {
   equal('propósito vazio preserva o STATUS existente', statusByDoc('DOC-S04').afterStatus, 'PENDENTE');
   check('propósito vazio não agenda escrita de status', statusByDoc('DOC-S04').statusWillChange === false);
   equal('cancelamento mais recente do duplicado prepara CANCELADO', statusByDoc('DOC-S05').afterStatus, 'CANCELADO');
-  equal('quatro status precisam ser gravados', statusAnalysis.stats.statusWrites, 4);
+  equal('mudança apenas de status ainda entra no plano', statusByDoc('DOC-S06').status, 'ATUALIZAR');
+  check(
+    'mudança apenas de status não inventa alterações em GRDT/data/revisão',
+    statusByDoc('DOC-S06').statusWillChange === true &&
+      statusByDoc('DOC-S06').grdtWillChange === false &&
+      statusByDoc('DOC-S06').dateWillChange === false &&
+      statusByDoc('DOC-S06').revisionWillChange === false
+  );
+  equal('cinco status precisam ser gravados', statusAnalysis.stats.statusWrites, 5);
 
   const statusApplied = await V.tasks.apply({
     fileId: 'status-ld',
@@ -735,7 +747,7 @@ async function main() {
     options: { verify: true },
   });
   check('gravação de status concluída com integridade', statusApplied.ok === true && statusApplied.integrity.ok === true, statusApplied.error);
-  equal('contador de status gravados', statusApplied.counters.statusWrites, 4);
+  equal('contador de status gravados', statusApplied.counters.statusWrites, 5);
 
   const statusOut = await openModel(statusApplied.bytes, 'status-saida', [1, 2, 3, 4, 5]);
   equal('DOC-S01 gravado como EMITIDO', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 2, 5)), 'EMITIDO');
@@ -743,6 +755,8 @@ async function main() {
   equal('DOC-S03 gravado como EMITIDO', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 4, 5)), 'EMITIDO');
   equal('DOC-S04 preserva PENDENTE sem propósito', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 5, 5)), 'PENDENTE');
   equal('DOC-S05 usa o cancelamento mais recente', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 6, 5)), 'CANCELADO');
+  equal('DOC-S06 é atualizado só no status', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 7, 5)), 'EMITIDO');
+  equal('GRDT de DOC-S06 permanece igual', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 7, 2)), 'GR-106');
   equal('GRDT continua sendo atualizada junto com status', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 2, 2)), 'GR-101');
   equal('Revisão continua sendo atualizada junto com status', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 6, 4)), 'B');
 
