@@ -111,6 +111,7 @@
     }
 
     if (!map.revisionCol && detected.revisionCol) map.revisionCol = detected.revisionCol;
+    if (!map.purposeCol && detected.purposeCol) map.purposeCol = detected.purposeCol;
     if (!map.conferenceCol) map.conferenceCol = detected.conferenceCol;
     if (!map.sigemStatusCol) map.sigemStatusCol = detected.sigemStatusCol;
 
