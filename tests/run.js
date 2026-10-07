@@ -196,6 +196,8 @@ async function main() {
 
   check('"DATA DA POSTAGEM" não é confundida com Data Efetiva', V.headers.scoreHeader('dateEffective', 'DATA DA POSTAGEM') === 0);
   check('"Tipo de Documento" não é confundido com Documento', V.headers.scoreHeader('document', 'Tipo de Documento') === 0);
+  check('"Propósito" é reconhecido como propósito de emissão', V.headers.scoreHeader('purpose', 'Propósito') >= 55);
+  check('"STATUS" é reconhecido como status da LD', V.headers.scoreHeader('ldStatus', 'STATUS') >= 55);
 
   /* ---------------- Datas ---------------- */
   suite('Conversão e validação de datas');
@@ -656,6 +658,93 @@ async function main() {
   equal('padrão (sem opções): mesmo resultado de "ligada"', defaultRun.stats.found, looseRun.stats.found);
   equal('padrão (sem opções): "0091" já resolve sozinho', defaultRun.records.find((r) => r.document === '0091').status, 'ATUALIZAR');
   equal('padrão (sem opções): ambíguo continua protegido', defaultRun.missing[0]?.document, 'DOC-0005');
+
+  /* ---------------- Status da LD pelo propósito ---------------- */
+  suite('Status da LD — propósito da emissão da GRDT');
+
+  equal('CANCELADO em caixa alta vira CANCELADO', V.analyzer.statusFromPurpose('CANCELADO'), 'CANCELADO');
+  equal('cancelado com espaços e caixa variada vira CANCELADO', V.analyzer.statusFromPurpose('  Cancelado  '), 'CANCELADO');
+  equal('CONSTRUÇÃO vira EMITIDO', V.analyzer.statusFromPurpose('CONSTRUÇÃO'), 'EMITIDO');
+  equal('outro propósito válido vira EMITIDO', V.analyzer.statusFromPurpose('Para Aprovação'), 'EMITIDO');
+  equal('propósito vazio não inventa status', V.analyzer.statusFromPurpose('   '), '');
+
+  const statusRelationRows = [
+    [
+      { text: 'Documento', style: STYLE.HEADER },
+      { text: 'GRDT', style: STYLE.HEADER },
+      { text: 'Data Efetiva de Emissão', style: STYLE.HEADER },
+      { text: 'Revisão', style: STYLE.HEADER },
+      { text: 'Propósito', style: STYLE.HEADER },
+    ],
+    [{ text: 'DOC-S01' }, { text: 'GR-101' }, { dateSerial: SERIAL_2026_08_04, style: STYLE.DATE }, { text: '0' }, { text: 'CONSTRUÇÃO' }],
+    [{ text: 'DOC-S02' }, { text: 'GR-102' }, { dateSerial: SERIAL_2026_08_04, style: STYLE.DATE }, { text: 'A' }, { text: '  cancelado  ' }],
+    [{ text: 'DOC-S03' }, { text: 'GR-103' }, { dateSerial: SERIAL_2026_08_04, style: STYLE.DATE }, { text: 'B' }, { text: 'Para Aprovação' }],
+    [{ text: 'DOC-S04' }, { text: 'GR-104' }, { dateSerial: SERIAL_2026_08_04, style: STYLE.DATE }, { text: 'C' }, { inline: '' }],
+    // Mesmo documento em duas emissões: a ocorrência mais recente deve levar
+    // junto revisão, GRDT e propósito; não pode reaproveitar o propósito antigo.
+    [{ text: 'DOC-S05' }, { text: 'GR-105-A' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'A' }, { text: 'CONSTRUÇÃO' }],
+    [{ text: 'DOC-S05' }, { text: 'GR-105-B' }, { dateSerial: SERIAL_2026_02_02, style: STYLE.DATE }, { text: 'B' }, { text: 'Cancelado' }],
+  ];
+
+  const statusLdRows = [
+    [
+      { text: 'Documento', style: STYLE.HEADER },
+      { text: 'eGRDT', style: STYLE.HEADER },
+      { text: 'Data Efetiva de Emissão', style: STYLE.HEADER },
+      { text: 'Revisão', style: STYLE.HEADER },
+      { text: 'STATUS', style: STYLE.HEADER },
+    ],
+    [{ text: 'DOC-S01' }, { text: 'OLD-1' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'OLD' }, { text: 'PENDENTE' }],
+    [{ text: 'DOC-S02' }, { text: 'OLD-2' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'OLD' }, { text: 'EMITIDO' }],
+    [{ text: 'DOC-S03' }, { text: 'OLD-3' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'OLD' }, { text: 'CANCELADO' }],
+    [{ text: 'DOC-S04' }, { text: 'OLD-4' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'OLD' }, { text: 'PENDENTE' }],
+    [{ text: 'DOC-S05' }, { text: 'OLD-5' }, { dateSerial: SERIAL_2026_01_01, style: STYLE.DATE }, { text: 'OLD' }, { text: 'EMITIDO' }],
+  ];
+
+  const statusRelationBytes = await buildWorkbook(JSZip, [{ name: 'Relação', rows: statusRelationRows, options: {} }]);
+  const statusLdBytes = await buildWorkbook(JSZip, [{ name: 'Dados', rows: statusLdRows, options: {} }]);
+
+  const statusRelMeta = await V.tasks.open({ fileId: 'status-rel', name: 'REL_STATUS.xlsx', bytes: statusRelationBytes, hash: 'status-rel', profile: 'relation' });
+  const statusLdMeta = await V.tasks.open({ fileId: 'status-ld', name: 'LD_STATUS.xlsx', bytes: statusLdBytes, hash: 'status-ld', profile: 'ld' });
+
+  equal('coluna Propósito detectada na relação', statusRelMeta.mapping.purposeCol, 5);
+  equal('coluna STATUS detectada na LD', statusLdMeta.mapping.statusCol, 5);
+
+  const statusRelIndex = await V.tasks.indexRelation({ fileId: 'status-rel', mapping: statusRelMeta.mapping });
+  equal('propósito da ocorrência mais recente vence em documento duplicado', statusRelIndex.selected.get('DOC-S05').purpose, 'Cancelado');
+  equal('revisão da mesma ocorrência mais recente é mantida junto', statusRelIndex.selected.get('DOC-S05').revision, 'B');
+
+  const statusLdIndex = await V.tasks.indexLd({ fileId: 'status-ld', mapping: statusLdMeta.mapping });
+  const statusGlobalIndex = V.indexer.buildGlobalIndex([statusLdIndex]);
+  const statusFiles = new Map([['status-ld', { id: 'status-ld', name: 'LD_STATUS.xlsx', sheetName: 'Dados' }]]);
+  const statusAnalysis = V.analyzer.analyze(statusRelIndex, statusGlobalIndex, statusFiles);
+  const statusByDoc = (doc) => statusAnalysis.records.find((r) => r.document === doc);
+
+  equal('CONSTRUÇÃO prepara STATUS EMITIDO', statusByDoc('DOC-S01').afterStatus, 'EMITIDO');
+  equal('cancelado prepara STATUS CANCELADO', statusByDoc('DOC-S02').afterStatus, 'CANCELADO');
+  equal('propósito diferente de cancelado prepara EMITIDO', statusByDoc('DOC-S03').afterStatus, 'EMITIDO');
+  equal('propósito vazio preserva o STATUS existente', statusByDoc('DOC-S04').afterStatus, 'PENDENTE');
+  check('propósito vazio não agenda escrita de status', statusByDoc('DOC-S04').statusWillChange === false);
+  equal('cancelamento mais recente do duplicado prepara CANCELADO', statusByDoc('DOC-S05').afterStatus, 'CANCELADO');
+  equal('quatro status precisam ser gravados', statusAnalysis.stats.statusWrites, 4);
+
+  const statusApplied = await V.tasks.apply({
+    fileId: 'status-ld',
+    mapping: statusLdMeta.mapping,
+    plan: statusAnalysis.plans.get('status-ld'),
+    options: { verify: true },
+  });
+  check('gravação de status concluída com integridade', statusApplied.ok === true && statusApplied.integrity.ok === true, statusApplied.error);
+  equal('contador de status gravados', statusApplied.counters.statusWrites, 4);
+
+  const statusOut = await openModel(statusApplied.bytes, 'status-saida', [1, 2, 3, 4, 5]);
+  equal('DOC-S01 gravado como EMITIDO', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 2, 5)), 'EMITIDO');
+  equal('DOC-S02 gravado como CANCELADO', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 3, 5)), 'CANCELADO');
+  equal('DOC-S03 gravado como EMITIDO', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 4, 5)), 'EMITIDO');
+  equal('DOC-S04 preserva PENDENTE sem propósito', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 5, 5)), 'PENDENTE');
+  equal('DOC-S05 usa o cancelamento mais recente', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 6, 5)), 'CANCELADO');
+  equal('GRDT continua sendo atualizada junto com status', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 2, 2)), 'GR-101');
+  equal('Revisão continua sendo atualizada junto com status', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 6, 4)), 'B');
 
   /* ---------------- Revisão ---------------- */
   suite('Revisão — coluna opcional lida do histórico na aba de documentos');
