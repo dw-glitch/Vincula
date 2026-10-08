@@ -195,7 +195,9 @@
       const conferenceStatus = conferenceCol ? X.cellDisplay(conferenceCell) : '';
       const sigemStatus = sigemStatusCol ? X.cellDisplay(sigemStatusCell) : '';
       const confirmedPost = relationType !== 'conference' || isConfirmedConferenceStatus(conferenceStatus);
-      const rawPurpose = purposeCol ? X.cellDisplay(purposeCell) : '';
+      // cellDisplay() chama squash() e elimina quebras de linha. O histórico
+      // de propósitos depende dessas quebras para separar cada eGRDT.
+      const rawPurpose = purposeCell ? String(purposeCell.value ?? '') : '';
       const grdtValue = X.cellDisplay(grdtCell);
       const revisionValue = revisionCol ? X.cellDisplay(revisionCell) : '';
       const purposeValue = relationType === 'conference'
