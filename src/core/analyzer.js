@@ -93,7 +93,11 @@
     const sources = new Map(relation.selected);
     if (relation.relationType === 'conference' && relation.statusSelected) {
       for (const [document, latest] of relation.statusSelected) {
-        if (!sources.has(document)) sources.set(document, { ...latest, statusOnly: true });
+        // Se há emissão recente pendente, jamais rebaixar revisão/GRDT/data
+        // aos valores de uma confirmação mais antiga.
+        if (!latest.confirmedPost || !sources.has(document)) {
+          sources.set(document, { ...latest, statusOnly: true });
+        }
       }
     }
     for (const [document, source] of sources) {
