@@ -340,6 +340,7 @@
       ? !!(mapping.documentCol && (mapping.grdtCol || mapping.dateCol))
       : !!(mapping.documentCol && mapping.grdtCol && mapping.dateCol);
     const dateLabel = kind === 'r' ? 'Data da geração / postagem' : 'Data efetiva de emissão';
+    const ldConference = kind !== 'r' && engine.state.relation?.relationType === 'conference';
     const cardId = `${kind}-${index}-${target}`;
 
     const body = `
@@ -367,12 +368,12 @@
             ? `<div class="field"><label>Propósito da emissão <small>(opcional)</small></label>
                  ${selectHtml('mc', { k: kind, i: index, t: target, f: 'purposeCol' }, colOptions, mapping.purposeCol, 'Nenhum')}
                </div>`
-            : `<div class="field"><label>Status da LD <small>(opcional)</small></label>
-                 ${selectHtml('mc', { k: kind, i: index, t: target, f: 'statusCol' }, colOptions, mapping.statusCol, 'Nenhum')}
+            : `<div class="field"><label>${ldConference ? 'STATUS SIGEM da LD' : 'Status da LD'} <small>(${ldConference ? 'não altera o propósito' : 'opcional'})</small></label>
+                 ${selectHtml('mc', { k: kind, i: index, t: target, f: ldConference ? 'sigemStatusCol' : 'statusCol' }, colOptions, ldConference ? mapping.sigemStatusCol : mapping.statusCol, 'Nenhum')}
                </div>`
         }
       </div>
-      <div class="file-meta">${esc(sheet.name)} · ${formatNumber(sheet.maxRow)} linhas · ${formatNumber(sheet.maxCol)} colunas</div>
+      <div class="file-meta">${esc(sheet.name)} · ${formatNumber(sheet.maxRow)} linhas · ${formatNumber(sheet.maxCol)} colunas${ldConference ? ' · STATUS SIGEM derivado do propósito de emissão; propósito da LD preservado' : ''}</div>
       ${
         extra
           ? `<div class="sheet-actions">
