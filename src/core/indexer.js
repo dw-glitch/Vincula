@@ -35,6 +35,34 @@
     return CONFIRMED_CONFERENCE.has(normalizeHeader(value));
   }
 
+  /**
+   * A coluna PROPÓSITO DE EMISSÃO do relatório detalhado agrega várias linhas:
+   * "eGRDT — Rev. C — Para Construção". Extrair somente a emissão identificada
+   * pela eGRDT MAIS RECENTE e pela REVISÃO ATUAL da mesma linha da planilha.
+   * Nunca tomar "Não identificado" ou um propósito de revisão antiga por válido.
+   */
+  function resolveConferencePurpose(value, grdt, revision) {
+    const raw = squash(value);
+    if (!raw) return '';
+    const lines = String(value).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const structured = [];
+    for (const line of lines) {
+      const parts = line.split(/\s+[—–]\s+/u).map((part) => part.trim());
+      if (parts.length < 3) continue;
+      const match = normalizeHeader(parts[1]).match(/^REV(?:ISAO)?\s+(.+)$/);
+      if (!match) continue;
+      structured.push({ grdt: parts[0], revision: match[1], purpose: parts.slice(2).join(' — ') });
+    }
+    if (!structured.length) return lines.length === 1 && !/[—–]/u.test(raw) ? raw : '';
+    const grdtKey = normalizeHeader(grdt);
+    const revisionKey = normalizeHeader(revision);
+    if (!grdtKey || !revisionKey) return '';
+    const matches = structured.filter((item) =>
+      normalizeHeader(item.grdt) === grdtKey && normalizeHeader(item.revision) === revisionKey
+    );
+    return matches.length === 1 ? matches[0].purpose : '';
+  }
+
   function readDateInfo(wb, cell) {
     const raw = cell
       ? cell.isDate
@@ -167,15 +195,22 @@
       const conferenceStatus = conferenceCol ? X.cellDisplay(conferenceCell) : '';
       const sigemStatus = sigemStatusCol ? X.cellDisplay(sigemStatusCell) : '';
       const confirmedPost = relationType !== 'conference' || isConfirmedConferenceStatus(conferenceStatus);
+      const rawPurpose = purposeCol ? X.cellDisplay(purposeCell) : '';
+      const grdtValue = X.cellDisplay(grdtCell);
+      const revisionValue = revisionCol ? X.cellDisplay(revisionCell) : '';
+      const purposeValue = relationType === 'conference'
+        ? resolveConferencePurpose(rawPurpose, grdtValue, revisionValue)
+        : rawPurpose;
 
       const entry = {
         document,
         rawDocument,
         row,
         relationType,
-        grdt: X.cellDisplay(grdtCell),
-        revision: revisionCol ? X.cellDisplay(revisionCell) : '',
-        purpose: purposeCol ? X.cellDisplay(purposeCell) : '',
+        grdt: grdtValue,
+        revision: revisionValue,
+        purpose: purposeValue,
+        purposeRaw: rawPurpose,
         conferenceStatus,
         sigemStatus,
         confirmedPost,
@@ -212,6 +247,20 @@
       let list = occurrences.get(document);
       if (!list) occurrences.set(document, (list = []));
       list.push(entry);
+    }
+
+    // Duas seleções distintas preservam a semântica da conferência:
+    // - selected: apenas postagens confirmadas, aptas a alterar GRDT/data/revisão;
+    // - statusSelected: última emissão (inclusive pendente), apta SOMENTE a
+    //   atualizar STATUS SIGEM quando código e revisão coincidirem na LD.
+    const statusSelected = new Map();
+    if (relationType === 'conference') {
+      for (const entry of rows) {
+        const previous = statusSelected.get(entry.document);
+        if (!previous || latestConferenceOccurrence([previous, entry]) === entry) {
+          statusSelected.set(entry.document, entry);
+        }
+      }
     }
 
     const selected = new Map();
@@ -259,6 +308,7 @@
       eligibleRows,
       excludedRows,
       selected,
+      statusSelected,
       duplicates,
       totalRows: rows.length,
       uniqueDocuments: selected.size,
@@ -353,6 +403,7 @@
     CONFIRMED_CONFERENCE,
     isConfirmedConferenceStatus,
     latestConferenceOccurrence,
+    resolveConferencePurpose,
     buildRelationIndex,
     buildLdEntries,
     buildGlobalIndex,
