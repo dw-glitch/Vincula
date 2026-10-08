@@ -206,6 +206,127 @@ async function main() {
   eq(confirmationOnlyMeta.relationType, 'conference', 'assinatura exclusiva deve identificar a Conferência');
   eq(confirmationOnlyMeta.mapping.dateCol, null, 'Data da confirmação não deve ser escolhida automaticamente');
 
+
+  // ------------------------------------------------------------------
+  // Relatório detalhado REAL do GRCON: cabeçalho linha 10, propósito por
+  // guia/revisão, linhas pendentes e destino STATUS SIGEM da LD.
+  // ------------------------------------------------------------------
+  const detailedHeader = Array(17).fill(null);
+  for (const [col, name] of [
+    [1, 'Código'], [4, 'eGRDTs emitidas / histórico de envios'],
+    [7, 'Último envio'], [8, 'eGRDT mais recente'],
+    [9, 'PROPÓSITO DE EMISSÃO'], [10, 'Revisão atual'],
+    [13, 'Conferência'], [14, 'Status SIGEM'],
+  ]) detailedHeader[col - 1] = cell(name);
+  const detail = (doc, grdt, revision, purpose, conference = 'Aguardando retorno do SIGEM') => {
+    const row = Array(17).fill(null);
+    for (const [col, value] of [
+      [1, doc], [4, 'Outras guias anteriores'], [7, '07/10/2026'],
+      [8, grdt], [9, purpose], [10, revision],
+      [13, conference], [14, 'Recusado'],
+    ]) row[col - 1] = cell(value);
+    return row;
+  };
+  const detailedRows = [
+    ...Array.from({ length: 9 }, () => []),
+    detailedHeader,
+    detail('DOC-P', 'GRDT-300', 'C',
+      'GRDT-300 — Rev. C — Para Construção\\nGRDT-200 — Rev. B — Cancelado'),
+    detail('DOC-C', 'GRDT-400', 'A',
+      'GRDT-400 — Rev. A — Cancelado'),
+    detail('DOC-N', 'GRDT-500', '0',
+      'GRDT-500 — Rev. 0 — Não identificado'),
+    detail('DOC-X', 'GRDT-600', 'D',
+      'GRDT-600 — Rev. D — Para Construção'),
+    detail('DOC-OLD', 'GRDT-800', 'D',
+      'GRDT-800 — Rev. D — Para Construção\\nGRDT-700 — Rev. C — Cancelado'),
+    detail('DOC-OLD', 'GRDT-700', 'C',
+      'GRDT-700 — Rev. C — Cancelado', 'Postado'),
+  ];
+  const detailedBytes = await buildWorkbook(JSZip, [
+    { name: 'Detalhamento', rows: detailedRows, options: {} },
+    { name: 'GRDTs Pendentes', rows: [[cell('GRDT'), cell('Quantidade de documentos')]], options: {} },
+  ]);
+  const detailedMeta = await openRelation(V, detailedBytes, 'detail-20261008', 'Relatorio_Conferencia_Postagem_Pendencias_20261008.xlsx');
+  eq(detailedMeta.mapping.headerRow, 10, 'cabeçalho real do relatório é a linha 10');
+  eq(detailedMeta.mapping.grdtCol, 8, 'última eGRDT é a coluna H, nunca o histórico D');
+  eq(detailedMeta.mapping.purposeCol, 9, 'propósito de emissão é a coluna I');
+  eq(detailedMeta.mapping.revisionCol, 10, 'revisão atual é a coluna J');
+  eq(detailedMeta.mapping.conferenceCol, 13, 'conferência é a coluna M');
+  const detailedIndex = await V.tasks.indexRelation({ fileId: 'detail-20261008', mapping: detailedMeta.mapping });
+  eq(detailedIndex.selected.size, 1, 'somente ocorrência postada é confirmada');
+  eq(detailedIndex.statusSelected.size, 5, 'todas as emissões recentes são consideradas apenas para STATUS SIGEM');
+  eq(detailedIndex.statusSelected.get('DOC-P').purpose, 'Para Construção', 'última revisão prevalece sobre cancelamento histórico');
+  eq(detailedIndex.statusSelected.get('DOC-C').purpose, 'Cancelado', 'cancelamento vigente é reconhecido');
+  eq(detailedIndex.statusSelected.get('DOC-N').purpose, 'Não identificado', 'propósito desconhecido não é inferido');
+  eq(V.analyzer.statusFromPurpose('Não identificado'), '', 'propósito não identificado não deve virar EMITIDO');
+
+  const ldHeader = ['Documento', 'eGRDT', 'Data Efetiva de Emissão', 'Revisão', 'PROPÓSITO DE EMISSÃO', 'STATUS SIGEM', 'Status da LD'].map(cell);
+  const ldLine = (doc, rev, purpose, sigem) => [
+    cell(doc), cell('GRDT-ANTIGA'), cell('01/08/2026'), cell(rev),
+    cell(purpose), cell(sigem), cell('PENDENTE'),
+  ];
+  const ldRows = [
+    ldHeader,
+    ldLine('DOC-P', 'C', 'Para Construção', 'PENDENTE'),
+    ldLine('DOC-C', 'A', 'Cancelado', 'EMITIDO'),
+    ldLine('DOC-N', '0', 'Não identificado', 'PENDENTE'),
+    ldLine('DOC-X', 'B', 'Para Construção', 'PENDENTE'),
+    ldLine('DOC-OLD', 'D', 'Para Construção', 'PENDENTE'),
+  ];
+  const ldBytes = await buildWorkbook(JSZip, [{ name: 'LD_001', rows: ldRows, options: {} }]);
+  const ldMeta = await V.tasks.open({
+    fileId: 'ld-detail', name: 'LD_001.xlsx', bytes: ldBytes, hash: 'ld-detail', profile: 'ld',
+  });
+  eq(ldMeta.mapping.sigemStatusCol, 6, 'STATUS SIGEM da LD detectado na coluna F');
+  eq(ldMeta.mapping.statusCol, 7, 'status genérico da LD continua identificado separadamente');
+  const ldMapping = { ...ldMeta.mapping, statusCol: ldMeta.mapping.sigemStatusCol };
+  const ldIndex = await V.tasks.indexLd({ fileId: 'ld-detail', mapping: ldMapping });
+  const global = V.indexer.buildGlobalIndex([ldIndex]);
+  const files = new Map([['ld-detail', { id: 'ld-detail', name: 'LD_001.xlsx', sheetName: 'LD_001' }]]);
+  const analysis = V.analyzer.analyze(detailedIndex, global, files);
+  const byDoc = (doc) => analysis.records.find((item) => item.document === doc);
+  eq(byDoc('DOC-P').afterStatus, 'EMITIDO', 'construção pendente atualiza apenas STATUS SIGEM');
+  eq(byDoc('DOC-C').afterStatus, 'CANCELADO', 'cancelamento pendente atualiza apenas STATUS SIGEM');
+  eq(byDoc('DOC-N').afterStatus, 'PENDENTE', 'não identificado preserva status');
+  eq(byDoc('DOC-X').afterStatus, 'PENDENTE', 'revisão divergente preserva status');
+  eq(byDoc('DOC-OLD').afterStatus, 'EMITIDO', 'guia mais nova pendente vence propósito de guia antiga postada');
+  eq(analysis.stats.grdtWrites, 0, 'pendência não altera GRDT');
+  eq(analysis.stats.dateWrites, 0, 'pendência não altera data');
+  eq(analysis.stats.revisionWrites, 0, 'pendência não altera revisão');
+  eq(analysis.stats.statusWrites, 3, 'somente os três propósitos válidos/revisões equivalentes alteram status');
+
+  const applied = await V.tasks.apply({
+    fileId: 'ld-detail', mapping: ldMapping,
+    plan: analysis.plans.get('ld-detail'), options: { verify: true },
+  });
+  ok(applied.ok && applied.integrity.ok, 'Excel gerado com verificação de integridade');
+  eq(applied.counters.statusWrites, 3, 'somente STATUS SIGEM recebeu gravações');
+  const outputMeta = await V.tasks.open({
+    fileId: 'ld-detail-output', name: 'LD_001_ATUALIZADA.xlsx',
+    bytes: applied.bytes, hash: 'ld-detail-output', profile: 'ld',
+  });
+  const resultIndex = await V.tasks.indexLd({
+    fileId: 'ld-detail-output',
+    mapping: { ...outputMeta.mapping, statusCol: outputMeta.mapping.sigemStatusCol },
+  });
+  const outputStatuses = new Map(resultIndex.entries.map((e) => [e.document, e.beforeStatus]));
+  eq(outputStatuses.get('DOC-P'), 'EMITIDO', 'STATUS SIGEM construction gravado na LD');
+  eq(outputStatuses.get('DOC-C'), 'CANCELADO', 'STATUS SIGEM cancelamento gravado na LD');
+  eq(outputStatuses.get('DOC-N'), 'PENDENTE', 'STATUS SIGEM desconhecido permanece');
+  eq(outputStatuses.get('DOC-X'), 'PENDENTE', 'STATUS SIGEM revisão divergente permanece');
+  eq(outputStatuses.get('DOC-OLD'), 'EMITIDO', 'STATUS SIGEM última emissão gravado');
+
+  const beforeZip = await JSZip.loadAsync(ldBytes);
+  const afterZip = await JSZip.loadAsync(applied.bytes);
+  const beforeXml = await beforeZip.file('xl/worksheets/sheet1.xml').async('string');
+  const afterXml = await afterZip.file('xl/worksheets/sheet1.xml').async('string');
+  for (const col of ['B', 'C', 'D', 'E', 'G']) {
+    const cells = (xml) => [...xml.matchAll(new RegExp('<c r="' + col + '[0-9]+"[^>]*>.*?<\\/c>', 'g'))].map((match) => match[0]);
+    eq(JSON.stringify(cells(afterXml)), JSON.stringify(cells(beforeXml)),
+      'coluna ' + col + ' totalmente preservada (inclui PROPÓSITO DE EMISSÃO)');
+  }
+
   console.log(`conference-relation: ${checks}/${checks} verificações aprovadas.`);
 }
 
