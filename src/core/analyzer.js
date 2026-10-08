@@ -58,7 +58,10 @@
 
   function statusFromPurpose(value) {
     const normalized = normalizeHeader(value);
-    if (!normalized) return '';
+    if (!normalized || ['NAO IDENTIFICADO', 'NAO INFORMADO', 'DESCONHECIDO', 'INDEFINIDO', '-', 'N A'].includes(normalized)) return '';
+    // Um histórico multilinear não é um propósito isolado. Seu tratamento
+    // pertence ao indexador, que identifica a eGRDT e a revisão exatas.
+    if (/[\r\n]/.test(String(value))) return '';
     return normalized === 'CANCELADO' ? 'CANCELADO' : 'EMITIDO';
   }
 
@@ -85,7 +88,19 @@
     let sequence = 0;
     let approximateCount = 0;
 
-    for (const [document, source] of relation.selected) {
+    // Linhas pendentes da Conferência não podem alterar GRDT/data/revisão,
+    // mas carregam a instrução de emissão necessária ao STATUS SIGEM da LD.
+    const sources = new Map(relation.selected);
+    if (relation.relationType === 'conference' && relation.statusSelected) {
+      for (const [document, latest] of relation.statusSelected) {
+        if (!sources.has(document)) sources.set(document, { ...latest, statusOnly: true });
+      }
+    }
+    for (const [document, source] of sources) {
+      const statusSource = relation.relationType === 'conference'
+        ? (relation.statusSelected?.get(document) || source)
+        : source;
+      const statusOnly = !!source.statusOnly;
       let matches = global.byDocument.get(document);
       const duplicateInfo = relation.duplicates.find((d) => d.document === document);
       const duplicatedInRelation = (duplicateInfo?.count || 0) > 1;
@@ -135,8 +150,8 @@
           beforeRevisao: '',
           afterRevisao: source.revision,
           beforeStatus: '',
-          afterStatus: statusFromPurpose(source.purpose),
-          purpose: source.purpose || '',
+          afterStatus: statusFromPurpose(statusSource.purpose),
+          purpose: statusSource.purpose || '',
           sourceDateRaw: source.sourceDateRaw || '',
           sourceDateOrigin: sourceDateOrigin(source),
           grdtWillChange: false,
@@ -170,21 +185,28 @@
         const grdtValue = squash(source.grdt);
         const hasGrdt = grdtValue !== '' && !D.isBlankDateToken(grdtValue);
         if (!hasGrdt) flags.push(FLAG.GRDT_AUSENTE);
-        if (!source.dateValid) flags.push(FLAG.DATA_INVALIDA);
+        if (!statusOnly && !source.dateValid) flags.push(FLAG.DATA_INVALIDA);
 
-        const grdtWillChange = hasGrdt && sheetHasGrdt && squash(entry.beforeGrdt) !== grdtValue;
+        const grdtWillChange = !statusOnly && hasGrdt && sheetHasGrdt && squash(entry.beforeGrdt) !== grdtValue;
 
         const revisionValue = squash(source.revision);
         const hasRevision = revisionValue !== '';
-        const revisionWillChange = hasRevision && sheetHasRevision && squash(entry.beforeRevisao) !== revisionValue;
+        const revisionWillChange = !statusOnly && hasRevision && sheetHasRevision && squash(entry.beforeRevisao) !== revisionValue;
 
-        const statusValue = statusFromPurpose(source.purpose);
+        let statusValue = statusFromPurpose(statusSource.purpose);
+        // Para a Conferência, atualizar STATUS SIGEM somente para a mesma
+        // revisão da última eGRDT; nunca propagar a revisão D à linha da LD B.
+        if (source.relationType === 'conference') {
+          const sourceRevision = normalizeHeader(statusSource.revision);
+          const targetRevision = normalizeHeader(revisionWillChange ? revisionValue : entry.beforeRevisao);
+          if (!sourceRevision || !targetRevision || sourceRevision !== targetRevision) statusValue = '';
+        }
         const hasPurpose = statusValue !== '';
         const statusWillChange =
           hasPurpose && sheetHasStatus && normalizeHeader(entry.beforeStatus) !== normalizeHeader(statusValue);
 
         let dateWillChange = false;
-        if (source.dateValid && sheetHasDate) {
+        if (!statusOnly && source.dateValid && sheetHasDate) {
           const current = existingDateIso(entry);
           // Mesmo dia, porém guardado como texto: reescreve como data real do
           // Excel — o tipo faz parte do resultado exigido, não só o valor.
@@ -203,9 +225,9 @@
           reasons.push(`Relação: ocorrência única, linha ${source.row}.`);
         }
         if (source.relationType === 'conference') {
-          reasons.push(
-            `Origem da data: ${sourceDateOrigin(source)}${source.sourceDateRaw ? ` ("${source.sourceDateRaw}")` : ''}.`
-          );
+          reasons.push(statusOnly
+            ? 'Postagem pendente: somente STATUS SIGEM pode ser alterado; GRDT, data e revisão da LD permanecem intactas.'
+            : `Origem da data: ${sourceDateOrigin(source)}${source.sourceDateRaw ? ` ("${source.sourceDateRaw}")` : ''}.`);
         }
         reasons.push(
           matches.length > 1
@@ -215,8 +237,8 @@
         if (!sheetHasGrdt) reasons.push(`A aba "${sheetName}" não tem coluna de GRDT mapeada; o campo não é gravado nela.`);
         if (!sheetHasDate) reasons.push(`A aba "${sheetName}" não tem coluna de data mapeada; o campo não é gravado nela.`);
         if (hasPurpose && !sheetHasStatus) reasons.push(`A aba "${sheetName}" não tem coluna de Status mapeada; o Status da LD não é gravado nela.`);
-        if (!hasPurpose) reasons.push('Propósito de emissão vazio na relação; o Status da LD é preservado.');
-        if (!source.dateValid) {
+        if (!hasPurpose) reasons.push('Propósito ausente/não identificado ou revisão divergente; STATUS SIGEM da LD é preservado.');
+        if (!source.dateValid && !statusOnly) {
           reasons.push(
             source.relationType === 'conference'
               ? `Data de origem inválida ("${source.sourceDateRaw || 'vazio'}"); a Data Efetiva de Emissão da LD é preservada.`
@@ -249,12 +271,12 @@
           beforeGrdt: entry.beforeGrdt,
           afterGrdt: grdtWillChange ? source.grdt : entry.beforeGrdt,
           beforeDate: entry.beforeDate,
-          afterDate: source.dateValid ? source.dateText : entry.beforeDate,
+          afterDate: !statusOnly && source.dateValid ? source.dateText : entry.beforeDate,
           beforeRevisao: entry.beforeRevisao,
           afterRevisao: revisionWillChange ? source.revision : entry.beforeRevisao,
           beforeStatus: entry.beforeStatus,
           afterStatus: statusWillChange ? statusValue : entry.beforeStatus,
-          purpose: source.purpose || '',
+          purpose: statusSource.purpose || '',
           sourceDateRaw: source.sourceDateRaw || '',
           sourceDateOrigin: sourceDateOrigin(source),
           grdtWillChange,
@@ -264,7 +286,7 @@
           reason: reasons.join(' '),
         };
         records.push(record);
-        if (!source.dateValid) invalidDates.push(record);
+        if (!source.dateValid && !statusOnly) invalidDates.push(record);
 
         if (willChange) {
           let plan = plans.get(entry.fileId);
@@ -290,14 +312,14 @@
     const sheetsTouched = new Set(changing.map((r) => `${r.fileId}|${r.sheetPath}`));
     const stats = {
       relationRows: relation.totalRows,
-      relationDocuments: relation.uniqueDocuments,
+      relationDocuments: sources.size,
       relationDuplicates: relation.duplicates.length,
       relationConflicts: relation.duplicates.filter((d) => d.conflict).length,
       ldEntries: global.totalEntries,
       ldDocuments: global.uniqueDocuments,
       ldDuplicates: global.duplicatedDocuments,
       records: records.length,
-      found: relation.uniqueDocuments - missing.length,
+      found: sources.size - missing.length,
       missing: missing.length,
       willChange: changing.length,
       unchanged: records.filter((r) => r.status === STATUS.SEM_ALTERACAO).length,
