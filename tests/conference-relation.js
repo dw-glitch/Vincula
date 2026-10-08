@@ -218,10 +218,10 @@ async function main() {
     [9, 'PROPÓSITO DE EMISSÃO'], [10, 'Revisão atual'],
     [13, 'Conferência'], [14, 'Status SIGEM'],
   ]) detailedHeader[col - 1] = cell(name);
-  const detail = (doc, grdt, revision, purpose, conference = 'Aguardando retorno do SIGEM') => {
+  const detail = (doc, grdt, revision, purpose, conference = 'Aguardando retorno do SIGEM', sentDate = '07/10/2026') => {
     const row = Array(17).fill(null);
     for (const [col, value] of [
-      [1, doc], [4, 'Outras guias anteriores'], [7, '07/10/2026'],
+      [1, doc], [4, 'Outras guias anteriores'], [7, sentDate],
       [8, grdt], [9, purpose], [10, revision],
       [13, conference], [14, 'Recusado'],
     ]) row[col - 1] = cell(value);
@@ -231,7 +231,7 @@ async function main() {
     ...Array.from({ length: 9 }, () => []),
     detailedHeader,
     detail('DOC-P', 'GRDT-300', 'C',
-      'GRDT-300 — Rev. C — Para Construção\\nGRDT-200 — Rev. B — Cancelado'),
+      'GRDT-300 — Rev. C — Para Construção\nGRDT-200 — Rev. B — Cancelado'),
     detail('DOC-C', 'GRDT-400', 'A',
       'GRDT-400 — Rev. A — Cancelado'),
     detail('DOC-N', 'GRDT-500', '0',
@@ -239,9 +239,9 @@ async function main() {
     detail('DOC-X', 'GRDT-600', 'D',
       'GRDT-600 — Rev. D — Para Construção'),
     detail('DOC-OLD', 'GRDT-800', 'D',
-      'GRDT-800 — Rev. D — Para Construção\\nGRDT-700 — Rev. C — Cancelado'),
+      'GRDT-800 — Rev. D — Para Construção\nGRDT-700 — Rev. C — Cancelado'),
     detail('DOC-OLD', 'GRDT-700', 'C',
-      'GRDT-700 — Rev. C — Cancelado', 'Postado'),
+      'GRDT-700 — Rev. C — Cancelado', 'Postado', '01/10/2026'),
   ];
   const detailedBytes = await buildWorkbook(JSZip, [
     { name: 'Detalhamento', rows: detailedRows, options: {} },
