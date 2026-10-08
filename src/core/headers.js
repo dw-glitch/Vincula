@@ -196,6 +196,15 @@
    * efetiva usada por exports antigos e também DATA EGRDT. No Histórico,
    * todas são alternativas legadas válidas para a única coluna de data.
    */
+  // A conferência detalhada também contém "eGRDTs emitidas / histórico de envios".
+  // Usar sempre a guia MAIS RECENTE, nunca o bloco textual do histórico.
+  FIELDS.grdtRecent = {
+    ...FIELDS.grdt,
+    exact: ['EGRDT MAIS RECENTE', 'GRDT MAIS RECENTE', ...FIELDS.grdt.exact],
+    optional: [...FIELDS.grdt.optional, 'MAIS', 'RECENTE'],
+    forbidden: [...FIELDS.grdt.forbidden, 'HISTORICO', 'ENVIOS', 'EMITIDAS'],
+  };
+
   FIELDS.relationDate = {
     label: 'Data (Histórico GRCON)',
     exact: [...FIELDS.datePosting.exact, ...FIELDS.dateEffective.exact, ...FIELDS.dateGrdt.exact],
@@ -209,6 +218,7 @@
     label: 'Revisão enviada na GRDT',
     exact: [
       'REVISAO ENVIADA',
+      'REVISAO ATUAL',
       'REVISAO ENVIADA NA GRDT',
       'REVISAO ENVIADA NA EGRDT',
       'REVISAO DA GRDT',
@@ -379,7 +389,7 @@
     },
     relationConference: {
       document: 'document',
-      grdt: 'grdt',
+      grdt: 'grdtRecent',
       date: 'dateSent',
       dateGrdt: 'dateGrdt',
       revision: 'revisionSent',
@@ -387,8 +397,8 @@
       conference: 'conferenceStatus',
       sigemStatus: 'sigemStatus',
     },
-    ld: { document: 'document', grdt: 'grdt', date: 'dateEffective', revision: 'revision', status: 'ldStatus' },
-    ldCv: { document: 'documentCv', grdt: 'grdt', date: 'dateEffective', revision: 'revision', status: 'ldStatus' },
+    ld: { document: 'document', grdt: 'grdt', date: 'dateEffective', revision: 'revision', status: 'ldStatus', sigemStatus: 'sigemStatus' },
+    ldCv: { document: 'documentCv', grdt: 'grdt', date: 'dateEffective', revision: 'revision', status: 'ldStatus', sigemStatus: 'sigemStatus' },
   };
 
   const SHEET_ROLES = {

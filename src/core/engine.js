@@ -234,6 +234,14 @@
     function validateMappings() {
       const relationMapping = state.relation.mapping;
       if (relationMapping.relationType === 'conference') {
+        // Nunca interpretar a coluna "Status" genérica como STATUS SIGEM.
+        for (const ld of state.lds.filter((item) => !item.error)) {
+          for (const target of enabledMappings(ld)) {
+            target.statusCol = Number(target.sigemStatusCol) || null;
+          }
+        }
+      }
+      if (relationMapping.relationType === 'conference') {
         if (!relationMapping.documentCol) {
           throw new Error('Não foi possível identificar a coluna “Código/Documento” na Conferência Histórico × Consulta Geral.');
         }
@@ -309,12 +317,12 @@
       checkCancelled();
       if (relationIndex.headerWarning) log('warn', relationIndex.headerWarning);
       if (relationIndex.conferenceStats) {
-        log('info', 'Conferência filtrada pela confirmação real no SIGEM', relationIndex.conferenceStats);
+        log('info', 'Postagem confirmada controla GRDT/data/revisão; última emissão controla STATUS SIGEM', relationIndex.conferenceStats);
       }
 
-      metrics.documentsIndexed = relationIndex.uniqueDocuments;
+      metrics.documentsIndexed = Math.max(relationIndex.uniqueDocuments, relationIndex.statusSelected?.size || 0);
       publishMetrics();
-      progress('indexacao', 25, `${relationIndex.uniqueDocuments} documento(s) confirmado(s)/único(s) na relação`);
+      progress('indexacao', 25, `${metrics.documentsIndexed} documento(s) identificado(s) na relação`);
 
       const sheetTargets = usable.flatMap((ld) => enabledMappings(ld).map((mapping) => ({ ld, mapping })));
       if (!sheetTargets.length) throw new Error('Nenhuma aba habilitada para atualização nas LDs carregadas.');
@@ -358,14 +366,14 @@
       // O valor bruto precisa vir exatamente da ocorrência que venceu o índice.
       // Em uma Conferência, uma linha posterior não confirmada nunca pode
       // sobrescrever a evidência da linha confirmada escolhida.
-      const rawByDocument = relationIndex.selected;
+      const rawByDocument = new Map([...(relationIndex.selected || new Map()), ...(relationIndex.statusSelected || new Map())]);
       for (const record of analysis.records) {
         const source = rawByDocument.get(record.document);
         record.sourceDateRaw = source ? source.sourceDateRaw : '';
         record.relationSource = relationIndex.sourceLabel || state.relation.sourceLabel || '';
         record.conferenceStatus = source ? source.conferenceStatus || '' : '';
         record.sigemStatus = source ? source.sigemStatus || '' : '';
-        record.purpose = source ? source.purpose || '' : record.purpose || '';
+        record.purpose = record.purpose || (source ? source.purpose || '' : '');
       }
 
       analysis.relationIndex = relationIndex;

@@ -418,6 +418,7 @@
         eligibleRows: index.eligibleRows,
         excludedRows: index.excludedRows,
         selected: index.selected,
+        statusSelected: index.statusSelected,
         duplicates: index.duplicates,
         totalRows: index.totalRows,
         uniqueDocuments: index.uniqueDocuments,
