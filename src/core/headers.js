@@ -397,8 +397,8 @@
       conference: 'conferenceStatus',
       sigemStatus: 'sigemStatus',
     },
-    ld: { document: 'document', grdt: 'grdt', date: 'dateEffective', revision: 'revision', status: 'ldStatus', sigemStatus: 'sigemStatus' },
-    ldCv: { document: 'documentCv', grdt: 'grdt', date: 'dateEffective', revision: 'revision', status: 'ldStatus', sigemStatus: 'sigemStatus' },
+    ld: { document: 'document', grdt: 'grdt', date: 'dateEffective', revision: 'revision', purpose: 'purpose', status: 'ldStatus', sigemStatus: 'sigemStatus' },
+    ldCv: { document: 'documentCv', grdt: 'grdt', date: 'dateEffective', revision: 'revision', purpose: 'purpose', status: 'ldStatus', sigemStatus: 'sigemStatus' },
   };
 
   const SHEET_ROLES = {
