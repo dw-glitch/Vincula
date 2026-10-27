@@ -332,7 +332,9 @@
     const grdtCol = Number(mapping.grdtCol) || null;
     const dateCol = Number(mapping.dateCol) || null;
     const revisionCol = Number(mapping.revisionCol) || null;
+    const purposeCol = Number(mapping.purposeCol) || null;
     const statusCol = Number(mapping.statusCol) || null;
+    const sigemStatusCol = Number(mapping.sigemStatusCol) || null;
     const firstRow = Number(mapping.headerRow) + 1;
     const sheetPath = mapping.sheetPath || '';
     const sheetName = mapping.sheetName || '';
@@ -346,7 +348,9 @@
       const grdtCell = grdtCol ? X.getCell(model, row, grdtCol) : null;
       const dateCell = dateCol ? X.getCell(model, row, dateCol) : null;
       const revisionCell = revisionCol ? X.getCell(model, row, revisionCol) : null;
+      const purposeCell = purposeCol ? X.getCell(model, row, purposeCol) : null;
       const statusCell = statusCol ? X.getCell(model, row, statusCol) : null;
+      const sigemStatusCell = sigemStatusCol ? X.getCell(model, row, sigemStatusCol) : null;
 
       entries.push({
         fileId,
@@ -359,7 +363,11 @@
         beforeDate: X.cellDisplay(dateCell),
         beforeDateSerial: dateCell && dateCell.isDate ? D.truncateSerial(dateCell.numeric) : null,
         beforeRevisao: revisionCol ? X.cellDisplay(revisionCell) : '',
+        beforePurpose: purposeCol ? X.cellDisplay(purposeCell) : '',
         beforeStatus: statusCol ? X.cellDisplay(statusCell) : '',
+        beforeSigemStatus: sigemStatusCol ? X.cellDisplay(sigemStatusCell) : '',
+        hasPurposeCol: !!purposeCol,
+        hasSigemStatusCol: !!sigemStatusCol,
         hasGrdtCol: !!grdtCol,
         hasDateCol: !!dateCol,
         hasRevisionCol: !!revisionCol,

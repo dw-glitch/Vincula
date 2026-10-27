@@ -58,6 +58,7 @@
     const dateCol = Number(mapping.dateCol) || null;
     const revisionCol = Number(mapping.revisionCol) || null;
     const statusCol = Number(mapping.statusCol) || null;
+    const sigemStatusCol = Number(mapping.sigemStatusCol) || null;
 
     const snapshotXml = model.xml;
     const snapshotHash = await sha256Hex(snapshotXml);
@@ -95,6 +96,9 @@
         if (item.status !== null && item.status !== undefined && statusCol) {
           targets.push({ field: 'STATUS', col: statusCol });
         }
+        if (item.sigemStatus !== null && item.sigemStatus !== undefined && sigemStatusCol) {
+          targets.push({ field: 'STATUS_SIGEM', col: sigemStatusCol });
+        }
         if (!targets.length) {
           results.push({ recordId: item.recordId, outcome: OUTCOME.IGNORADO, reason: 'Nada a gravar.' });
           continue;
@@ -128,7 +132,9 @@
                 ? editor.writeText(item.row, target.col, item.revision)
                 : target.field === 'STATUS'
                   ? editor.writeText(item.row, target.col, item.status)
-                  : editor.writeDate(item.row, target.col, D.parseDate(item.dateIso, false));
+                  : target.field === 'STATUS_SIGEM'
+                    ? editor.writeText(item.row, target.col, item.sigemStatus)
+                    : editor.writeDate(item.row, target.col, D.parseDate(item.dateIso, false));
 
           if (!ok) {
             blockedFields.push(target.field);
@@ -146,7 +152,7 @@
           applied.push(target.field);
           if (target.field === 'GRDT') grdtWrites++;
           else if (target.field === 'REVISAO') revisionWrites++;
-          else if (target.field === 'STATUS') statusWrites++;
+          else if (target.field === 'STATUS' || target.field === 'STATUS_SIGEM') statusWrites++;
           else dateWrites++;
         }
 

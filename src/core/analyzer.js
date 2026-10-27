@@ -66,6 +66,15 @@
   }
 
   /**
+   * Regra da própria LD: em uma linha documental válida, somente o valor
+   * CANCELADO no propósito produz CANCELADO; todos os demais produzem EMITIDO.
+   * Não usar aqui o propósito da Relação GRCON (são campos independentes).
+   */
+  function statusFromLdPurpose(value) {
+    return normalizeHeader(value) === 'CANCELADO' ? 'CANCELADO' : 'EMITIDO';
+  }
+
+  /**
    * @param {object} relation  índice da Relação GRCON
    * @param {object} global    índice global das LDs (documento → ocorrências).
    *   Uma LD pode contribuir com mais de uma aba (documentos e CV/currículos);
@@ -87,6 +96,8 @@
     const plans = new Map();
     let sequence = 0;
     let approximateCount = 0;
+    const processedEntries = new Set();
+    const entryKey = (entry) => `${entry.fileId}|${entry.sheetPath || ''}|${entry.row}`;
 
     // Linhas pendentes da Conferência não podem alterar GRDT/data/revisão,
     // mas carregam a instrução de emissão necessária ao STATUS SIGEM da LD.
@@ -171,6 +182,7 @@
 
       // Documento repetido na LD: todas as ocorrências exatas são atualizadas.
       for (const entry of matches) {
+        processedEntries.add(entryKey(entry));
         const file = files.get(entry.fileId) || { name: '', sheetName: '' };
         // A aba vem da própria ocorrência: o mesmo arquivo pode ter sido
         // indexado em mais de uma aba.
@@ -197,17 +209,27 @@
         const hasRevision = revisionValue !== '';
         const revisionWillChange = !statusOnly && hasRevision && sheetHasRevision && squash(entry.beforeRevisao) !== revisionValue;
 
-        let statusValue = statusFromPurpose(statusSource.purpose);
-        // Para a Conferência, atualizar STATUS SIGEM somente para a mesma
-        // revisão da última eGRDT; nunca propagar a revisão D à linha da LD B.
-        if (source.relationType === 'conference') {
+        const isConference = relation.relationType === 'conference';
+        const localStatusValue = entry.hasPurposeCol && sheetHasStatus
+          ? statusFromLdPurpose(entry.beforePurpose)
+          : '';
+        // Na LD, seu próprio propósito tem prioridade: jamais sobrescrever
+        // CANCELADO local por um propósito diferente vindo da relação.
+        const statusValue = localStatusValue || (isConference ? '' : statusFromPurpose(statusSource.purpose));
+        const statusWillChange =
+          !!statusValue && sheetHasStatus && normalizeHeader(entry.beforeStatus) !== normalizeHeader(statusValue);
+
+        // STATUS SIGEM é outra coluna: a Conferência só a atualiza quando
+        // a revisão mais recente coincide. Nunca misturar com STATUS da LD.
+        let sigemStatusValue = isConference ? statusFromPurpose(statusSource.purpose) : '';
+        if (isConference) {
           const sourceRevision = normalizeHeader(statusSource.revision);
           const targetRevision = normalizeHeader(revisionWillChange ? revisionValue : entry.beforeRevisao);
-          if (!sourceRevision || !targetRevision || sourceRevision !== targetRevision) statusValue = '';
+          if (!sourceRevision || !targetRevision || sourceRevision !== targetRevision) sigemStatusValue = '';
         }
-        const hasPurpose = statusValue !== '';
-        const statusWillChange =
-          hasPurpose && sheetHasStatus && normalizeHeader(entry.beforeStatus) !== normalizeHeader(statusValue);
+        const sigemStatusWillChange = !!sigemStatusValue && entry.hasSigemStatusCol &&
+          normalizeHeader(entry.beforeSigemStatus) !== normalizeHeader(sigemStatusValue);
+        const hasPurpose = !!(statusValue || sigemStatusValue);
 
         let dateWillChange = false;
         if (!statusOnly && source.dateValid && sheetHasDate) {
@@ -240,8 +262,9 @@
         );
         if (!sheetHasGrdt) reasons.push(`A aba "${sheetName}" não tem coluna de GRDT mapeada; o campo não é gravado nela.`);
         if (!sheetHasDate) reasons.push(`A aba "${sheetName}" não tem coluna de data mapeada; o campo não é gravado nela.`);
-        if (hasPurpose && !sheetHasStatus) reasons.push(`A aba "${sheetName}" não tem coluna de Status mapeada; o Status da LD não é gravado nela.`);
-        if (!hasPurpose) reasons.push('Propósito ausente/não identificado ou revisão divergente; STATUS SIGEM da LD é preservado.');
+        if (entry.hasPurposeCol && !sheetHasStatus) reasons.push(`A aba "${sheetName}" tem Propósito, mas não tem coluna de STATUS da LD mapeada; confirme a associação.`);
+        if (!hasPurpose) reasons.push('Propósito da relação ausente/não identificado ou revisão divergente; STATUS SIGEM é preservado.');
+        if (sigemStatusWillChange) reasons.push('STATUS SIGEM atualizado separadamente, sem sobrescrever STATUS da LD.');
         if (!source.dateValid && !statusOnly) {
           reasons.push(
             source.relationType === 'conference'
@@ -258,9 +281,9 @@
           );
           approximateCount++;
         }
-        if (!grdtWillChange && !dateWillChange && !revisionWillChange && !statusWillChange) reasons.push('Valores já conferem; nenhuma escrita será executada.');
+        if (!grdtWillChange && !dateWillChange && !revisionWillChange && !statusWillChange && !sigemStatusWillChange) reasons.push('Valores já conferem; nenhuma escrita será executada.');
 
-        const willChange = grdtWillChange || dateWillChange || revisionWillChange || statusWillChange;
+        const willChange = grdtWillChange || dateWillChange || revisionWillChange || statusWillChange || sigemStatusWillChange;
         const record = {
           id: ++sequence,
           document,
@@ -280,13 +303,16 @@
           afterRevisao: revisionWillChange ? source.revision : entry.beforeRevisao,
           beforeStatus: entry.beforeStatus,
           afterStatus: statusWillChange ? statusValue : entry.beforeStatus,
-          purpose: statusSource.purpose || '',
+          beforeSigemStatus: entry.beforeSigemStatus || '',
+          afterSigemStatus: sigemStatusWillChange ? sigemStatusValue : entry.beforeSigemStatus || '',
+          purpose: entry.hasPurposeCol ? entry.beforePurpose : statusSource.purpose || '',
           sourceDateRaw: source.sourceDateRaw || '',
           sourceDateOrigin: sourceDateOrigin(source),
           grdtWillChange,
           dateWillChange,
           revisionWillChange,
           statusWillChange,
+          sigemStatusWillChange,
           reason: reasons.join(' '),
         };
         records.push(record);
@@ -307,8 +333,46 @@
             dateIso: dateWillChange ? source.dateIso : null,
             revision: revisionWillChange ? source.revision : null,
             status: statusWillChange ? statusValue : null,
+            sigemStatus: sigemStatusWillChange ? sigemStatusValue : null,
           });
         }
+      }
+    }
+
+    // A própria LD é a fonte da regra STATUS: inclui documentos que não
+    // apareceram na Relação GRCON, sem tocar em GRDT, revisão ou data.
+    // O identificador composto evita contar uma mesma linha duas vezes.
+    for (const matches of global.byDocument.values()) {
+      for (const entry of matches) {
+        if (processedEntries.has(entryKey(entry)) || !entry.hasPurposeCol || !entry.hasStatusCol) continue;
+        const newStatus = statusFromLdPurpose(entry.beforePurpose);
+        if (normalizeHeader(entry.beforeStatus) === normalizeHeader(newStatus)) continue;
+        const file = files.get(entry.fileId) || { name: '', sheetName: '' };
+        const sheetName = entry.sheetName || file.sheetName || '';
+        const record = {
+          id: ++sequence, document: entry.document, relationRow: null,
+          status: STATUS.ATUALIZAR, flags: [],
+          fileId: entry.fileId, fileName: file.name, sheetName,
+          sheetPath: entry.sheetPath || '', row: entry.row,
+          beforeGrdt: entry.beforeGrdt, afterGrdt: entry.beforeGrdt,
+          beforeDate: entry.beforeDate, afterDate: entry.beforeDate,
+          beforeRevisao: entry.beforeRevisao, afterRevisao: entry.beforeRevisao,
+          beforeStatus: entry.beforeStatus, afterStatus: newStatus,
+          beforeSigemStatus: entry.beforeSigemStatus || '',
+          afterSigemStatus: entry.beforeSigemStatus || '',
+          purpose: entry.beforePurpose, sourceDateRaw: '', sourceDateOrigin: '',
+          grdtWillChange: false, dateWillChange: false, revisionWillChange: false,
+          statusWillChange: true, sigemStatusWillChange: false,
+          reason: 'STATUS calculado a partir do PROPOSITO DE EMISSAO da própria LD; não houve correspondência na Relação GRCON. GRDT, data e revisão preservadas.',
+        };
+        records.push(record);
+        let plan = plans.get(entry.fileId);
+        if (!plan) plans.set(entry.fileId, (plan = []));
+        plan.push({
+          recordId: record.id, document: record.document, sheetPath: record.sheetPath,
+          sheetName, row: entry.row, grdt: null, dateIso: null,
+          revision: null, status: newStatus, sigemStatus: null,
+        });
       }
     }
 
@@ -332,6 +396,7 @@
       dateWrites: changing.filter((r) => r.dateWillChange).length,
       revisionWrites: changing.filter((r) => r.revisionWillChange).length,
       statusWrites: changing.filter((r) => r.statusWillChange).length,
+      sigemStatusWrites: changing.filter((r) => r.sigemStatusWillChange).length,
       approximateMatches: approximateCount,
       sheetsWithChanges: sheetsTouched.size,
     };
@@ -350,5 +415,5 @@
     return record.status === filter;
   }
 
-  V.analyzer = { STATUS, STATUS_LABEL, FLAG, FLAG_LABEL, statusFromPurpose, analyze, matchesFilter };
+  V.analyzer = { STATUS, STATUS_LABEL, FLAG, FLAG_LABEL, statusFromPurpose, statusFromLdPurpose, analyze, matchesFilter };
 })(typeof self !== 'undefined' ? self : this);

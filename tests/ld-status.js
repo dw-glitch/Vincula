@@ -1,0 +1,110 @@
+'use strict';
+const assert = require('node:assert/strict');
+const { loadVincula } = require('./harness');
+const { buildWorkbook, STYLE, serial } = require('./fixtures');
+const { V, JSZip } = loadVincula();
+
+async function readStatus(bytes, row, col) {
+  const wb = await V.xlsx.open(bytes, 'verificacao.xlsx');
+  const sheet = wb.sheets[0];
+  const xml = await V.xlsx.readSheetXml(wb, sheet);
+  const model = V.xlsx.scanSheet(wb, xml, { columns: [col] });
+  return V.xlsx.cellDisplay(V.xlsx.getCell(model, row, col));
+}
+
+async function run() {
+  const date = serial(2026, 8, 4);
+  const relation = await buildWorkbook(JSZip, [{
+    name: 'Relacao', options: {}, rows: [
+      [{text:'Documento'}, {text:'GRDT'}, {text:'Data Efetiva de Emissão'}, {text:'Propósito'}],
+      [{text:'DOC-A'}, {text:'GR-NEW'}, {dateSerial:date,style:STYLE.DATE}, {text:'CONSTRUÇÃO'}],
+    ],
+  }]);
+  const ld = await buildWorkbook(JSZip, [{
+    name: 'Documentos', options: {autoFilter:'A1:G8',validation:'G2:G8'}, rows: [
+      [{text:'Código do Documento'}, {text:'GRDT'}, {text:'Data Efetiva de Emissão'},
+       {text:'PROPÓSITO DE EMISSÃO'}, {text:'STATUS'}, {text:'STATUS SIGEM'}, {text:'Observação'}],
+      [{text:'DOC-A'}, {text:'GR-OLD'}, {dateSerial:date,style:STYLE.DATE}, {text:'CANCELADO'}, {text:'EM EMISSÃO'}, {text:'Em análise'}, {text:'Preservar'}],
+      [{text:'DOC-B'}, {text:'GR-B'}, {dateSerial:date,style:STYLE.DATE}, {text:'Emissão Inicial'}, {text:' em emissão '}, {text:'Pendente'}, {text:'Sem relação'}],
+      [{text:'DOC-C'}, {text:'GR-C'}, {dateSerial:date,style:STYLE.DATE}, {text:'  cancelado  '}, {text:'EMITIDO'}, {text:'Em análise'}, {text:'Cancelamento local'}],
+      [{text:'DOC-D'}, {text:'GR-D'}, {dateSerial:date,style:STYLE.DATE}, {inline:''}, {text:'EM EMISSÃO'}, {text:'Rascunho'}, {text:'Propósito vazio'}],
+      [{text:'DOC-E'}, {text:'GR-E'}, {dateSerial:date,style:STYLE.DATE}, {text:'CANCELADO'}, {formula:'"EM EMISSÃO"',cached:'EM EMISSÃO'}, {text:'Pendente'}, {text:'Fórmula preservada'}],
+      [{text:'DOC-AB'}, {text:'GR-AB'}, {dateSerial:date,style:STYLE.DATE}, {text:'CONSTRUÇÃO'}, {text:'EMITIDO'}, {text:'Pendente'}, {text:'Não confundir códigos'}],
+      [{inline:''}, {inline:''}, null, null, {text:'SEM ALTERAÇÃO'}, null, {text:'Linha sem código'}],
+    ],
+  }]);
+  const relMeta = await V.tasks.open({fileId:'rel-local',name:'REL.xlsx',bytes:relation,hash:'rel-local',profile:'relation'});
+  const ldMeta = await V.tasks.open({fileId:'ld-local',name:'LD.xlsx',bytes:ld,hash:'ld-local',profile:'ld'});
+  assert.equal(ldMeta.mapping.purposeCol, 4);
+  assert.equal(ldMeta.mapping.statusCol, 5);
+  assert.equal(ldMeta.mapping.sigemStatusCol, 6);
+  const relIndex = await V.tasks.indexRelation({fileId:'rel-local',mapping:relMeta.mapping});
+  const ldIndex = await V.tasks.indexLd({fileId:'ld-local',mapping:ldMeta.mapping});
+  const files = new Map([['ld-local',{id:'ld-local',name:'LD.xlsx',sheetName:'Documentos'}]]);
+  const analysis = V.analyzer.analyze(relIndex,V.indexer.buildGlobalIndex([ldIndex]),files);
+  const byDoc = (id) => analysis.records.find(r=>r.document===id);
+  assert.equal(byDoc('DOC-A').afterStatus,'CANCELADO','propósito local prevalece sobre relação');
+  assert.equal(byDoc('DOC-B').afterStatus,'EMITIDO','LD fora da relação é atualizada');
+  assert.equal(byDoc('DOC-C').afterStatus,'CANCELADO','espaços e caixa são normalizados');
+  assert.equal(byDoc('DOC-D').afterStatus,'EMITIDO','propósito local vazio não bloqueia documento preenchido');
+  assert.equal(byDoc('DOC-AB'),undefined,'status já correto não produz alteração desnecessária');
+  assert.equal(byDoc('DOC-E').afterStatus,'CANCELADO','fórmula protegida é tentada, não apagada');
+  assert.equal(analysis.stats.statusWrites,5);
+  const plan = analysis.plans.get('ld-local');
+  const result = await V.tasks.apply({fileId:'ld-local',mapping:ldMeta.mapping,plan,options:{verify:true}});
+  assert.equal(result.ok,true,result.error);
+  assert.equal(result.integrity.ok,true);
+  assert.equal(await readStatus(result.bytes,2,5),'CANCELADO');
+  assert.equal(await readStatus(result.bytes,3,5),'EMITIDO');
+  assert.equal(await readStatus(result.bytes,4,5),'CANCELADO');
+  assert.equal(await readStatus(result.bytes,5,5),'EMITIDO');
+  assert.equal(await readStatus(result.bytes,6,5),'EM EMISSÃO','fórmula deve preservar valor em cache');
+  assert.equal(await readStatus(result.bytes,8,5),'SEM ALTERAÇÃO','linha sem código fica intacta');
+  assert.equal(await readStatus(result.bytes,2,6),'Em análise','STATUS SIGEM não deve ser alterado');
+  assert.equal(await readStatus(result.bytes,2,2),'GR-NEW','GRDT não sofre regressão');
+  assert.equal(await readStatus(result.bytes,2,7),'Preservar','outras colunas intactas');
+  assert.equal(result.counters.statusWrites,4,'fórmula de STATUS bloqueada com segurança');
+
+  // Reimportação: todas as células graváveis já conferem. A fórmula permanece
+  // bloqueada e por isso continua gerando uma pendência auditável.
+  const secondMeta = await V.tasks.open({fileId:'ld-second',name:'LD_2.xlsx',bytes:result.bytes,hash:'ld-second',profile:'ld'});
+  const secondIndex = await V.tasks.indexLd({fileId:'ld-second',mapping:secondMeta.mapping});
+  const second = V.analyzer.analyze(relIndex,V.indexer.buildGlobalIndex([secondIndex]),
+    new Map([['ld-second',{id:'ld-second',name:'LD_2.xlsx',sheetName:'Documentos'}]]));
+  assert.equal(second.stats.statusWrites,1,'segunda execução só encontra a fórmula bloqueada');
+  assert.equal(second.records.find(r=>r.document==='DOC-E').afterStatus,'CANCELADO');
+
+  // Sem relação correspondente: lote grande ainda deve corrigir STATUS
+  // individualmente, sem mudar GRDT ou outros campos.
+  const bulkRows = [[{text:'Documento'},{text:'GRDT'},{text:'Data Efetiva de Emissão'},
+    {text:'PROPOSITO DE EMISSAO'},{text:'STATUS'}]];
+  for(let i=0;i<1200;i++) bulkRows.push([
+    {text:'DOC-BULK-'+String(i).padStart(4,'0')}, {text:'GR-'+i},
+    {dateSerial:date,style:STYLE.DATE}, {text:i%7===0?'CANCELADO':'CONSTRUÇÃO'}, {text:'EM EMISSÃO'},
+  ]);
+  const bulkBytes=await buildWorkbook(JSZip,[{name:'Documentos',rows:bulkRows,options:{}}]);
+  const bulkMeta=await V.tasks.open({fileId:'bulk',name:'BULK.xlsx',bytes:bulkBytes,hash:'bulk',profile:'ld'});
+  const bulkIndex=await V.tasks.indexLd({fileId:'bulk',mapping:bulkMeta.mapping});
+  const bulkAnalysis=V.analyzer.analyze(relIndex,V.indexer.buildGlobalIndex([bulkIndex]),
+    new Map([['bulk',{id:'bulk',name:'BULK.xlsx',sheetName:'Documentos'}]]));
+  assert.equal(bulkAnalysis.stats.statusWrites,1200);
+  const bulkResult=await V.tasks.apply({fileId:'bulk',mapping:bulkMeta.mapping,
+    plan:bulkAnalysis.plans.get('bulk'),options:{verify:true}});
+  assert.equal(bulkResult.ok,true,bulkResult.error);
+  assert.equal(await readStatus(bulkResult.bytes,2,5),'CANCELADO');
+  assert.equal(await readStatus(bulkResult.bytes,3,5),'EMITIDO');
+  assert.equal(await readStatus(bulkResult.bytes,1201,5),'EMITIDO');
+
+  // STATUS SIGEM e STATUS da LD são dois alvos independentes.
+  const conferencePlan=[{recordId:999,document:'DOC-A',sheetPath:ldMeta.mapping.sheetPath,
+    sheetName:'Documentos',row:2,grdt:null,dateIso:null,revision:null,status:'CANCELADO',sigemStatus:'EMITIDO'}];
+  const conferenceResult=await V.tasks.apply({
+    fileId:'ld-local',mapping:ldMeta.mapping,plan:conferencePlan,options:{verify:true}
+  });
+  assert.equal(conferenceResult.ok,true,conferenceResult.error);
+  assert.equal(await readStatus(conferenceResult.bytes,2,5),'CANCELADO');
+  assert.equal(await readStatus(conferenceResult.bytes,2,6),'EMITIDO');
+  console.log('STATUS LD: regras, independência SIGEM, Excel, integridade e lote de 1200 aprovados.');
+  V.tasks.releaseAll();
+}
+run().catch(err=>{console.error(err);process.exitCode=1;});

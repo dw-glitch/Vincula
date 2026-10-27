@@ -368,12 +368,18 @@
             ? `<div class="field"><label>Propósito da emissão <small>(opcional)</small></label>
                  ${selectHtml('mc', { k: kind, i: index, t: target, f: 'purposeCol' }, colOptions, mapping.purposeCol, 'Nenhum')}
                </div>`
-            : `<div class="field"><label>${ldConference ? 'STATUS SIGEM da LD' : 'Status da LD'} <small>(${ldConference ? 'não altera o propósito' : 'opcional'})</small></label>
-                 ${selectHtml('mc', { k: kind, i: index, t: target, f: ldConference ? 'sigemStatusCol' : 'statusCol' }, colOptions, ldConference ? mapping.sigemStatusCol : mapping.statusCol, 'Nenhum')}
-               </div>`
+            : `<div class="field"><label>Propósito de emissão na LD <small>(origem do Status)</small></label>
+                 ${selectHtml('mc', { k: kind, i: index, t: target, f: 'purposeCol' }, colOptions, mapping.purposeCol, 'Nenhum')}
+               </div>
+               <div class="field"><label>Status da LD <small>(EMITIDO / CANCELADO)</small></label>
+                 ${selectHtml('mc', { k: kind, i: index, t: target, f: 'statusCol' }, colOptions, mapping.statusCol, 'Nenhum')}
+               </div>
+               ${ldConference ? `<div class="field"><label>Status SIGEM <small>(independente do Status da LD)</small></label>
+                 ${selectHtml('mc', { k: kind, i: index, t: target, f: 'sigemStatusCol' }, colOptions, mapping.sigemStatusCol, 'Nenhum')}
+               </div>` : ''}`
         }
       </div>
-      <div class="file-meta">${esc(sheet.name)} · ${formatNumber(sheet.maxRow)} linhas · ${formatNumber(sheet.maxCol)} colunas${ldConference ? ' · STATUS SIGEM derivado do propósito de emissão; propósito da LD preservado' : ''}</div>
+      <div class="file-meta">${esc(sheet.name)} · ${formatNumber(sheet.maxRow)} linhas · ${formatNumber(sheet.maxCol)} colunas${mapping.purposeCol && mapping.statusCol ? ' · STATUS da LD calculado pelo propósito da própria LD' : ' · Mapeie Propósito e Status para atualização automática na LD'}${ldConference ? ' · STATUS SIGEM independente' : ''}</div>
       ${
         extra
           ? `<div class="sheet-actions">
@@ -492,6 +498,7 @@
       revisionCol: scan.detected.revisionCol,
       purposeCol: scan.detected.purposeCol,
       statusCol: scan.detected.statusCol,
+      sigemStatusCol: scan.detected.sigemStatusCol,
       confidence: scan.detected.confidence,
       fieldScores: scan.detected.fieldScores,
     });

@@ -280,7 +280,7 @@ async function main() {
   });
   eq(ldMeta.mapping.sigemStatusCol, 6, 'STATUS SIGEM da LD detectado na coluna F');
   eq(ldMeta.mapping.statusCol, 7, 'status genérico da LD continua identificado separadamente');
-  const ldMapping = { ...ldMeta.mapping, statusCol: ldMeta.mapping.sigemStatusCol };
+  const ldMapping = ldMeta.mapping;
   const ldIndex = await V.tasks.indexLd({ fileId: 'ld-detail', mapping: ldMapping });
   const global = V.indexer.buildGlobalIndex([ldIndex]);
   const files = new Map([['ld-detail', { id: 'ld-detail', name: 'LD_001.xlsx', sheetName: 'LD_001' }]]);
@@ -288,20 +288,22 @@ async function main() {
   const byDoc = (doc) => analysis.records.find((item) => item.document === doc);
   eq(byDoc('DOC-P').afterStatus, 'EMITIDO', 'construção pendente atualiza apenas STATUS SIGEM');
   eq(byDoc('DOC-C').afterStatus, 'CANCELADO', 'cancelamento pendente atualiza apenas STATUS SIGEM');
-  eq(byDoc('DOC-N').afterStatus, 'PENDENTE', 'não identificado preserva status');
-  eq(byDoc('DOC-X').afterStatus, 'PENDENTE', 'revisão divergente preserva status');
+  eq(byDoc('DOC-N').afterStatus, 'EMITIDO', 'STATUS da LD segue propósito local mesmo se não identificado');
+  eq(byDoc('DOC-X').afterStatus, 'EMITIDO', 'revisão divergente não impede regra STATUS local');
+  eq(byDoc('DOC-X').afterSigemStatus, 'PENDENTE', 'revisão divergente preserva exclusivamente STATUS SIGEM');
   eq(byDoc('DOC-OLD').afterStatus, 'EMITIDO', 'guia mais nova pendente vence propósito de guia antiga postada');
   eq(analysis.stats.grdtWrites, 0, 'pendência não altera GRDT');
   eq(analysis.stats.dateWrites, 0, 'pendência não altera data');
   eq(analysis.stats.revisionWrites, 0, 'pendência não altera revisão');
-  eq(analysis.stats.statusWrites, 3, 'somente os três propósitos válidos/revisões equivalentes alteram status');
+  eq(analysis.stats.statusWrites, 5, 'cinco STATUS locais são derivados da própria LD');
+  eq(analysis.stats.sigemStatusWrites, 3, 'três STATUS SIGEM seguem revisões e propósito da relação');
 
   const applied = await V.tasks.apply({
     fileId: 'ld-detail', mapping: ldMapping,
     plan: analysis.plans.get('ld-detail'), options: { verify: true },
   });
   ok(applied.ok && applied.integrity.ok, 'Excel gerado com verificação de integridade');
-  eq(applied.counters.statusWrites, 3, 'somente STATUS SIGEM recebeu gravações');
+  eq(applied.counters.statusWrites, 8, 'STATUS da LD e STATUS SIGEM gravados independentemente');
   const outputMeta = await V.tasks.open({
     fileId: 'ld-detail-output', name: 'LD_001_ATUALIZADA.xlsx',
     bytes: applied.bytes, hash: 'ld-detail-output', profile: 'ld',
@@ -321,7 +323,15 @@ async function main() {
   const afterZip = await JSZip.loadAsync(applied.bytes);
   const beforeXml = await beforeZip.file('xl/worksheets/sheet1.xml').async('string');
   const afterXml = await afterZip.file('xl/worksheets/sheet1.xml').async('string');
-  for (const col of ['B', 'C', 'D', 'E', 'G']) {
+  const outputLdIndex = await V.tasks.indexLd({
+    fileId: 'ld-detail-output', mapping: outputMeta.mapping,
+  });
+  const newLdStatus = new Map(outputLdIndex.entries.map(e => [e.document, e.beforeStatus]));
+  eq(newLdStatus.get('DOC-P'), 'EMITIDO', 'STATUS próprio da LD atualizado para emitido');
+  eq(newLdStatus.get('DOC-C'), 'CANCELADO', 'STATUS próprio da LD atualizado para cancelado');
+  eq(newLdStatus.get('DOC-N'), 'EMITIDO', 'STATUS próprio da LD preenchido mesmo sem propósito conhecido');
+  eq(newLdStatus.get('DOC-X'), 'EMITIDO', 'STATUS da LD independente da revisão SIGEM');
+  for (const col of ['B', 'C', 'D', 'E']) {
     const cells = (xml) => [...xml.matchAll(new RegExp('<c r="' + col + '[0-9]+"[^>]*>.*?<\\/c>', 'g'))].map((match) => match[0]);
     eq(JSON.stringify(cells(afterXml)), JSON.stringify(cells(beforeXml)),
       'coluna ' + col + ' totalmente preservada (inclui PROPÓSITO DE EMISSÃO)');
