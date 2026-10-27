@@ -234,14 +234,6 @@
     function validateMappings() {
       const relationMapping = state.relation.mapping;
       if (relationMapping.relationType === 'conference') {
-        // Nunca interpretar a coluna "Status" genérica como STATUS SIGEM.
-        for (const ld of state.lds.filter((item) => !item.error)) {
-          for (const target of enabledMappings(ld)) {
-            target.statusCol = Number(target.sigemStatusCol) || null;
-          }
-        }
-      }
-      if (relationMapping.relationType === 'conference') {
         if (!relationMapping.documentCol) {
           throw new Error('Não foi possível identificar a coluna “Código/Documento” na Conferência Histórico × Consulta Geral.');
         }
@@ -285,7 +277,7 @@
         }
         const cols = target.relation
           ? [documentCol, grdtCol, dateCol, revisionCol, purposeCol, conferenceCol, sigemStatusCol].filter(Boolean)
-          : [documentCol, grdtCol, dateCol, revisionCol, statusCol].filter(Boolean);
+          : [documentCol, grdtCol, dateCol, revisionCol, purposeCol, statusCol, sigemStatusCol].filter(Boolean);
         if (new Set(cols).size < cols.length) {
           throw new Error(`Uma mesma coluna foi associada a dois campos em "${target.label}".`);
         }
