@@ -190,7 +190,7 @@ async function run() {
     new Map([['no-purpose',{id:'no-purpose',name:'SEM_PROPOSITO.xlsx',sheetName:'Documentos'}]])
   );
   assert.equal(noPurposeAnalysis.stats.statusWrites,1,'GRDT local basta, sem coluna de propósito');
-  assert.equal(noPurposeAnalysis.records[0].document,'DOC-SEM-COL-P');
+  assert.equal(noPurposeAnalysis.records.find(r=>r.document==='DOC-SEM-COL-P')?.afterStatus,'EMITIDO');
   const noPurposeResult = await V.tasks.apply({
     fileId:'no-purpose',mapping:noPurposeMeta.mapping,
     plan:noPurposeAnalysis.plans.get('no-purpose'),options:{verify:true},
