@@ -104,6 +104,100 @@ async function run() {
   assert.equal(conferenceResult.ok,true,conferenceResult.error);
   assert.equal(await readStatus(conferenceResult.bytes,2,5),'CANCELADO');
   assert.equal(await readStatus(conferenceResult.bytes,2,6),'EMITIDO');
+
+  // Regressão: não emitir indiscriminadamente as linhas sem GRDT.
+  const conditionalRelation = await buildWorkbook(JSZip, [{
+    name: 'Relacao', rows: [
+      [{text:'Documento'}, {text:'GRDT'}, {text:'Data Efetiva de Emissão'}, {text:'Propósito'}],
+      [{text:'DOC-NOVO'}, {text:'GRDT-NOVA'}, {dateSerial:date,style:STYLE.DATE}, {text:'CONSTRUÇÃO'}],
+      [{text:'DOC-SEM-GRDT'}, {inline:''}, {dateSerial:date,style:STYLE.DATE}, {text:'CONSTRUÇÃO'}],
+    ],
+  }]);
+  const conditionalLd = await buildWorkbook(JSZip, [{
+    name: 'Documentos', rows: [
+      [{text:'Documento'}, {text:'GRDT'}, {text:'Data Efetiva de Emissão'},
+       {text:'PROPÓSITO DE EMISSÃO'}, {text:'STATUS'}, {text:'STATUS SIGEM'}],
+      [{text:'DOC-VAZIO'}, {inline:''}, {dateSerial:date,style:STYLE.DATE}, {text:'CONSTRUÇÃO'}, {text:'EM EMISSÃO'}, {text:'Pendente'}],
+      [{text:'DOC-SEM-GRDT'}, {inline:''}, {dateSerial:date,style:STYLE.DATE}, {text:'CONSTRUÇÃO'}, {text:'PENDENTE'}, {text:'Pendente'}],
+      [{text:'DOC-NOVO'}, {inline:''}, {dateSerial:date,style:STYLE.DATE}, {text:'CONSTRUÇÃO'}, {text:'PENDENTE'}, {text:'Pendente'}],
+      [{text:'DOC-EXISTENTE'}, {text:'GRDT-ANTIGA'}, {dateSerial:date,style:STYLE.DATE}, {text:'CONSTRUÇÃO'}, {text:'PENDENTE'}, {text:'Pendente'}],
+      [{text:'DOC-CANCELADO'}, {inline:''}, {dateSerial:date,style:STYLE.DATE}, {text:'  cancelado  '}, {text:'PENDENTE'}, {text:'Pendente'}],
+      [{text:'DOC-PLACEHOLDER'}, {text:'-'}, {dateSerial:date,style:STYLE.DATE}, {text:'CONSTRUÇÃO'}, {text:'EM EMISSÃO'}, {text:'Pendente'}],
+      [{text:'DOC-NAO-EXISTENTE'}, {text:'N/A'}, {dateSerial:date,style:STYLE.DATE}, {text:'CONSTRUÇÃO'}, {text:'EM EMISSÃO'}, {text:'Pendente'}],
+      [{text:'DOC-EMITIDO'}, {inline:''}, {dateSerial:date,style:STYLE.DATE}, {text:'CONSTRUÇÃO'}, {text:'EMITIDO'}, {text:'Pendente'}],
+      [{text:'DOC-SEM-PROPOSITO'}, {text:'GRDT-LOCAL'}, {dateSerial:date,style:STYLE.DATE}, {inline:''}, {text:'PENDENTE'}, {text:'Pendente'}],
+    ],
+  }]);
+  const conditionalRelMeta = await V.tasks.open({
+    fileId:'conditional-rel',name:'COND_REL.xlsx',bytes:conditionalRelation,hash:'conditional-rel',profile:'relation',
+  });
+  const conditionalMeta = await V.tasks.open({
+    fileId:'conditional-ld',name:'COND_LD.xlsx',bytes:conditionalLd,hash:'conditional-ld',profile:'ld',
+  });
+  const conditionalIndex = await V.tasks.indexRelation({fileId:'conditional-rel',mapping:conditionalRelMeta.mapping});
+  const conditionalLdIndex = await V.tasks.indexLd({fileId:'conditional-ld',mapping:conditionalMeta.mapping});
+  const conditionalFiles = new Map([['conditional-ld',{
+    id:'conditional-ld',name:'COND_LD.xlsx',sheetName:'Documentos',
+  }]]);
+  const conditionalAnalysis = V.analyzer.analyze(
+    conditionalIndex,V.indexer.buildGlobalIndex([conditionalLdIndex]),conditionalFiles
+  );
+  const conditionalByDoc = (id) => conditionalAnalysis.records.find(r=>r.document===id);
+  assert.equal(V.analyzer.statusFromLdPurpose('CONSTRUÇÃO',false),'','propósito sozinho não emite');
+  assert.equal(V.analyzer.statusFromLdPurpose('CONSTRUÇÃO',true),'EMITIDO','GRDT habilita emissão');
+  assert.equal(V.analyzer.statusFromLdPurpose(' cancelado ',false),'CANCELADO','cancelamento prevalece');
+  assert.equal(conditionalByDoc('DOC-VAZIO'),undefined,'sem relação e sem GRDT preserva STATUS');
+  assert.equal(conditionalByDoc('DOC-SEM-GRDT'),undefined,'relação com GRDT vazia preserva STATUS');
+  assert.equal(conditionalByDoc('DOC-NOVO').afterStatus,'EMITIDO','GRDT a preencher emite');
+  assert.equal(conditionalByDoc('DOC-NOVO').grdtWillChange,true,'GRDT nova será gravada');
+  assert.equal(conditionalByDoc('DOC-EXISTENTE').afterStatus,'EMITIDO','GRDT pré-existente emite sem relação');
+  assert.equal(conditionalByDoc('DOC-CANCELADO').afterStatus,'CANCELADO','CANCELADO local mesmo sem GRDT');
+  assert.equal(conditionalByDoc('DOC-PLACEHOLDER'),undefined,'hífen não é GRDT');
+  assert.equal(conditionalByDoc('DOC-NAO-EXISTENTE'),undefined,'N/A não é GRDT');
+  assert.equal(conditionalByDoc('DOC-EMITIDO'),undefined,'não modifica STATUS preexistente sem GRDT');
+  assert.equal(conditionalByDoc('DOC-SEM-PROPOSITO').afterStatus,'EMITIDO','GRDT local emite mesmo sem propósito');
+  assert.equal(conditionalAnalysis.stats.statusWrites,4,'exatamente quatro STATUS merecem atualização');
+  assert.equal(conditionalAnalysis.stats.grdtWrites,1,'somente a GRDT nova é preenchida');
+  const conditionalResult = await V.tasks.apply({
+    fileId:'conditional-ld',mapping:conditionalMeta.mapping,
+    plan:conditionalAnalysis.plans.get('conditional-ld'),options:{verify:true},
+  });
+  assert.equal(conditionalResult.ok,true,conditionalResult.error);
+  assert.equal(conditionalResult.integrity.ok,true);
+  for (const [row, expected] of [
+    [2,'EM EMISSÃO'],[3,'PENDENTE'],[4,'EMITIDO'],[5,'EMITIDO'],
+    [6,'CANCELADO'],[7,'EM EMISSÃO'],[8,'EM EMISSÃO'],[9,'EMITIDO'],[10,'EMITIDO'],
+  ]) assert.equal(await readStatus(conditionalResult.bytes,row,5),expected,'STATUS da linha '+row);
+  assert.equal(await readStatus(conditionalResult.bytes,4,2),'GRDT-NOVA','GRDT nova e status emitido no mesmo arquivo');
+  assert.equal(await readStatus(conditionalResult.bytes,2,6),'Pendente','STATUS SIGEM independente da LD');
+
+  // Sem coluna de propósito: GRDT preenchida ainda é condição suficiente.
+  const withoutPurpose = await buildWorkbook(JSZip,[{
+    name:'Documentos',rows:[
+      [{text:'Documento'}, {text:'GRDT'}, {text:'Data Efetiva de Emissão'}, {text:'STATUS'}],
+      [{text:'DOC-SEM-COL-P'}, {text:'GRDT-123'}, {dateSerial:date,style:STYLE.DATE}, {text:'PENDENTE'}],
+      [{text:'DOC-SEM-COL-P2'}, {inline:''}, {dateSerial:date,style:STYLE.DATE}, {text:'PENDENTE'}],
+    ],
+  }]);
+  const noPurposeMeta = await V.tasks.open({
+    fileId:'no-purpose',name:'SEM_PROPOSITO.xlsx',bytes:withoutPurpose,hash:'no-purpose',profile:'ld',
+  });
+  assert.equal(noPurposeMeta.mapping.purposeCol,null,'nenhuma coluna de propósito inventada');
+  const noPurposeIndex = await V.tasks.indexLd({fileId:'no-purpose',mapping:noPurposeMeta.mapping});
+  const noPurposeAnalysis = V.analyzer.analyze(
+    conditionalIndex,V.indexer.buildGlobalIndex([noPurposeIndex]),
+    new Map([['no-purpose',{id:'no-purpose',name:'SEM_PROPOSITO.xlsx',sheetName:'Documentos'}]])
+  );
+  assert.equal(noPurposeAnalysis.stats.statusWrites,1,'GRDT local basta, sem coluna de propósito');
+  assert.equal(noPurposeAnalysis.records[0].document,'DOC-SEM-COL-P');
+  const noPurposeResult = await V.tasks.apply({
+    fileId:'no-purpose',mapping:noPurposeMeta.mapping,
+    plan:noPurposeAnalysis.plans.get('no-purpose'),options:{verify:true},
+  });
+  assert.equal(noPurposeResult.ok,true,noPurposeResult.error);
+  assert.equal(await readStatus(noPurposeResult.bytes,2,4),'EMITIDO');
+  assert.equal(await readStatus(noPurposeResult.bytes,3,4),'PENDENTE');
+
   console.log('STATUS LD: regras, independência SIGEM, Excel, integridade e lote de 1200 aprovados.');
   V.tasks.releaseAll();
 }
