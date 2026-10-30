@@ -660,7 +660,7 @@ async function main() {
   equal('padrão (sem opções): ambíguo continua protegido', defaultRun.missing[0]?.document, 'DOC-0005');
 
   /* ---------------- Status da LD pelo propósito ---------------- */
-  suite('Status da LD — propósito da emissão da GRDT');
+  suite('Status da LD — CANCELADO por propósito e EMITIDO somente com GRDT');
 
   equal('CANCELADO em caixa alta vira CANCELADO', V.analyzer.statusFromPurpose('CANCELADO'), 'CANCELADO');
   equal('cancelado com espaços e caixa variada vira CANCELADO', V.analyzer.statusFromPurpose('  Cancelado  '), 'CANCELADO');
@@ -727,8 +727,8 @@ async function main() {
   equal('CONSTRUÇÃO prepara STATUS EMITIDO', statusByDoc('DOC-S01').afterStatus, 'EMITIDO');
   equal('cancelado prepara STATUS CANCELADO', statusByDoc('DOC-S02').afterStatus, 'CANCELADO');
   equal('propósito diferente de cancelado prepara EMITIDO', statusByDoc('DOC-S03').afterStatus, 'EMITIDO');
-  equal('propósito vazio preserva o STATUS existente', statusByDoc('DOC-S04').afterStatus, 'PENDENTE');
-  check('propósito vazio não agenda escrita de status', statusByDoc('DOC-S04').statusWillChange === false);
+  equal('propósito vazio com GRDT existente prepara EMITIDO', statusByDoc('DOC-S04').afterStatus, 'EMITIDO');
+  check('propósito vazio com GRDT programa escrita de status', statusByDoc('DOC-S04').statusWillChange === true);
   equal('cancelamento mais recente do duplicado prepara CANCELADO', statusByDoc('DOC-S05').afterStatus, 'CANCELADO');
   equal('mudança apenas de status ainda entra no plano', statusByDoc('DOC-S06').status, 'ATUALIZAR');
   check(
@@ -738,7 +738,7 @@ async function main() {
       statusByDoc('DOC-S06').dateWillChange === false &&
       statusByDoc('DOC-S06').revisionWillChange === false
   );
-  equal('cinco status precisam ser gravados', statusAnalysis.stats.statusWrites, 5);
+  equal('seis status com GRDT precisam ser gravados', statusAnalysis.stats.statusWrites, 6);
 
   const statusApplied = await V.tasks.apply({
     fileId: 'status-ld',
@@ -747,13 +747,13 @@ async function main() {
     options: { verify: true },
   });
   check('gravação de status concluída com integridade', statusApplied.ok === true && statusApplied.integrity.ok === true, statusApplied.error);
-  equal('contador de status gravados', statusApplied.counters.statusWrites, 5);
+  equal('contador de status gravados', statusApplied.counters.statusWrites, 6);
 
   const statusOut = await openModel(statusApplied.bytes, 'status-saida', [1, 2, 3, 4, 5]);
   equal('DOC-S01 gravado como EMITIDO', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 2, 5)), 'EMITIDO');
   equal('DOC-S02 gravado como CANCELADO', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 3, 5)), 'CANCELADO');
   equal('DOC-S03 gravado como EMITIDO', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 4, 5)), 'EMITIDO');
-  equal('DOC-S04 preserva PENDENTE sem propósito', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 5, 5)), 'PENDENTE');
+  equal('DOC-S04 com GRDT fica EMITIDO mesmo sem propósito', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 5, 5)), 'EMITIDO');
   equal('DOC-S05 usa o cancelamento mais recente', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 6, 5)), 'CANCELADO');
   equal('DOC-S06 é atualizado só no status', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 7, 5)), 'EMITIDO');
   equal('GRDT de DOC-S06 permanece igual', V.xlsx.cellDisplay(V.xlsx.getCell(statusOut.model, 7, 2)), 'GR-106');

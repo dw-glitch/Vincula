@@ -65,13 +65,20 @@
     return normalized === 'CANCELADO' ? 'CANCELADO' : 'EMITIDO';
   }
 
+  /** GRDT precisa conter um número real, não uma célula em branco/placeholder. */
+  function hasFilledGrdt(value) {
+    const grdt = squash(value);
+    return grdt !== '' && !D.isBlankDateToken(grdt);
+  }
+
   /**
-   * Regra da própria LD: em uma linha documental válida, somente o valor
-   * CANCELADO no propósito produz CANCELADO; todos os demais produzem EMITIDO.
-   * Não usar aqui o propósito da Relação GRCON (são campos independentes).
+   * STATUS da própria LD: CANCELADO no propósito local tem prioridade.
+   * EMITIDO exige GRDT já preenchida ou que será gravada nesta execução.
+   * Sem as duas condições, não alterar o status que já existe na planilha.
    */
-  function statusFromLdPurpose(value) {
-    return normalizeHeader(value) === 'CANCELADO' ? 'CANCELADO' : 'EMITIDO';
+  function statusFromLdPurpose(value, hasGrdt) {
+    if (normalizeHeader(value) === 'CANCELADO') return 'CANCELADO';
+    return hasGrdt ? 'EMITIDO' : '';
   }
 
   /**
@@ -199,7 +206,7 @@
         const sheetHasStatus = entry.hasStatusCol !== false;
 
         const grdtValue = squash(source.grdt);
-        const hasGrdt = grdtValue !== '' && !D.isBlankDateToken(grdtValue);
+        const hasGrdt = hasFilledGrdt(grdtValue);
         if (!hasGrdt) flags.push(FLAG.GRDT_AUSENTE);
         if (!statusOnly && !source.dateValid) flags.push(FLAG.DATA_INVALIDA);
 
@@ -210,12 +217,19 @@
         const revisionWillChange = !statusOnly && hasRevision && sheetHasRevision && squash(entry.beforeRevisao) !== revisionValue;
 
         const isConference = relation.relationType === 'conference';
-        const localStatusValue = entry.hasPurposeCol && sheetHasStatus
-          ? statusFromLdPurpose(entry.beforePurpose)
+        // Não considerar somente a presença do documento na relação:
+        // EMITIDO exige GRDT que já exista na LD ou que de fato será escrita.
+        // Pendências da Conferência (statusOnly) não prometem preencher GRDT.
+        const hasGrdtInLd = sheetHasGrdt && hasFilledGrdt(entry.beforeGrdt);
+        const hasGrdtAfterUpdate = hasGrdtInLd || grdtWillChange;
+        // O propósito da própria LD decide o CANCELADO; quando a LD não tem
+        // essa coluna, a relação histórica pode fornecer o CANCELADO legado.
+        // Em qualquer caso, EMITIDO só ocorre com GRDT existente ou prevista.
+        const ldPurpose = entry.hasPurposeCol ? entry.beforePurpose
+          : (isConference ? '' : statusSource.purpose);
+        const statusValue = sheetHasStatus
+          ? statusFromLdPurpose(ldPurpose, hasGrdtAfterUpdate)
           : '';
-        // Na LD, seu próprio propósito tem prioridade: jamais sobrescrever
-        // CANCELADO local por um propósito diferente vindo da relação.
-        const statusValue = localStatusValue || (isConference ? '' : statusFromPurpose(statusSource.purpose));
         const statusWillChange =
           !!statusValue && sheetHasStatus && normalizeHeader(entry.beforeStatus) !== normalizeHeader(statusValue);
 
@@ -263,6 +277,12 @@
         if (!sheetHasGrdt) reasons.push(`A aba "${sheetName}" não tem coluna de GRDT mapeada; o campo não é gravado nela.`);
         if (!sheetHasDate) reasons.push(`A aba "${sheetName}" não tem coluna de data mapeada; o campo não é gravado nela.`);
         if (entry.hasPurposeCol && !sheetHasStatus) reasons.push(`A aba "${sheetName}" tem Propósito, mas não tem coluna de STATUS da LD mapeada; confirme a associação.`);
+        if (statusWillChange) reasons.push(statusValue === 'CANCELADO'
+          ? 'STATUS da LD = CANCELADO pelo propósito local.'
+          : 'STATUS da LD = EMITIDO por GRDT existente ou preenchida nesta atualização.');
+        if (sheetHasStatus && !hasGrdtAfterUpdate && statusValue !== 'CANCELADO') {
+          reasons.push('Sem GRDT existente ou prevista nesta linha: STATUS da LD preservado.');
+        }
         if (!hasPurpose) reasons.push('Propósito da relação ausente/não identificado ou revisão divergente; STATUS SIGEM é preservado.');
         if (sigemStatusWillChange) reasons.push('STATUS SIGEM atualizado separadamente, sem sobrescrever STATUS da LD.');
         if (!source.dateValid && !statusOnly) {
@@ -339,14 +359,18 @@
       }
     }
 
-    // A própria LD é a fonte da regra STATUS: inclui documentos que não
-    // apareceram na Relação GRCON, sem tocar em GRDT, revisão ou data.
+    // Inclui documentos que não apareceram na Relação GRCON: só marcar
+    // EMITIDO com GRDT existente, ou CANCELADO por propósito da própria LD.
+    // Nunca escrever EMITIDO indiscriminadamente em GRDTs vazias.
     // O identificador composto evita contar uma mesma linha duas vezes.
     for (const matches of global.byDocument.values()) {
       for (const entry of matches) {
-        if (processedEntries.has(entryKey(entry)) || !entry.hasPurposeCol || !entry.hasStatusCol) continue;
-        const newStatus = statusFromLdPurpose(entry.beforePurpose);
-        if (normalizeHeader(entry.beforeStatus) === normalizeHeader(newStatus)) continue;
+        if (processedEntries.has(entryKey(entry)) || !entry.hasStatusCol) continue;
+        const newStatus = statusFromLdPurpose(
+          entry.hasPurposeCol ? entry.beforePurpose : '',
+          entry.hasGrdtCol && hasFilledGrdt(entry.beforeGrdt)
+        );
+        if (!newStatus || normalizeHeader(entry.beforeStatus) === normalizeHeader(newStatus)) continue;
         const file = files.get(entry.fileId) || { name: '', sheetName: '' };
         const sheetName = entry.sheetName || file.sheetName || '';
         const record = {
@@ -363,7 +387,9 @@
           purpose: entry.beforePurpose, sourceDateRaw: '', sourceDateOrigin: '',
           grdtWillChange: false, dateWillChange: false, revisionWillChange: false,
           statusWillChange: true, sigemStatusWillChange: false,
-          reason: 'STATUS calculado a partir do PROPOSITO DE EMISSAO da própria LD; não houve correspondência na Relação GRCON. GRDT, data e revisão preservadas.',
+          reason: newStatus === 'CANCELADO'
+            ? 'STATUS CANCELADO pelo propósito da própria LD; GRDT, data e revisão preservadas.'
+            : 'STATUS EMITIDO porque a GRDT já está preenchida na própria LD; GRDT, data e revisão preservadas.',
         };
         records.push(record);
         let plan = plans.get(entry.fileId);
