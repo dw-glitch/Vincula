@@ -1,0 +1,9 @@
+{
+  "name": "vincula-cloudflare",
+  "compatibility_date": "2026-10-30",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./dist-cloudflare",
+    "html_handling": "auto-trailing-slash"
+  }
+}

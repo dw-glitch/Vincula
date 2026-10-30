@@ -1,0 +1,7 @@
+# Artefatos produzidos localmente/na Cloudflare
+dist-cloudflare/
+node_modules/
+.wrangler/
+.dev.vars
+.env
+.env.*
