@@ -147,7 +147,8 @@ async function run() {
   assert.equal(V.analyzer.statusFromLdPurpose('CONSTRUÇÃO',true),'EMITIDO','GRDT habilita emissão');
   assert.equal(V.analyzer.statusFromLdPurpose(' cancelado ',false),'CANCELADO','cancelamento prevalece');
   assert.equal(conditionalByDoc('DOC-VAZIO'),undefined,'sem relação e sem GRDT preserva STATUS');
-  assert.equal(conditionalByDoc('DOC-SEM-GRDT'),undefined,'relação com GRDT vazia preserva STATUS');
+  assert.equal(conditionalByDoc('DOC-SEM-GRDT').statusWillChange,false,'relação com GRDT vazia não altera STATUS');
+  assert.equal(conditionalByDoc('DOC-SEM-GRDT').afterStatus,'PENDENTE','relação sem GRDT mantém o STATUS existente');
   assert.equal(conditionalByDoc('DOC-NOVO').afterStatus,'EMITIDO','GRDT a preencher emite');
   assert.equal(conditionalByDoc('DOC-NOVO').grdtWillChange,true,'GRDT nova será gravada');
   assert.equal(conditionalByDoc('DOC-EXISTENTE').afterStatus,'EMITIDO','GRDT pré-existente emite sem relação');
