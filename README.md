@@ -17,7 +17,7 @@ Nenhum arquivo sai da máquina do usuário.
 
 ## Como executar
 
-**Publicado (recomendado):** Cloudflare Workers Static Assets, usando `wrangler.jsonc`, `npm run build` e o repositório GitHub na branch `main`. Consulte [`docs/CLOUDFLARE_DEPLOY.md`](docs/CLOUDFLARE_DEPLOY.md). A hospedagem antiga na Vercel continua disponível durante a transição.
+**Publicado (recomendado):** [Vincula no Cloudflare](https://vincula-cloudflare.grcon-qualidade.workers.dev/), em Cloudflare Workers Static Assets, usando `wrangler.jsonc`, `npm run build` e o repositório GitHub na branch `main`. Consulte [`docs/CLOUDFLARE_DEPLOY.md`](docs/CLOUDFLARE_DEPLOY.md). A hospedagem antiga na Vercel continua disponível durante a transição.
 
 **Local:** sirva a pasta por HTTP — `npx http-server -p 8080` — e abra `http://localhost:8080`.
 
