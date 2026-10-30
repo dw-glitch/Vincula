@@ -352,6 +352,10 @@
             grdt: grdtWillChange ? source.grdt : null,
             dateIso: dateWillChange ? source.dateIso : null,
             revision: revisionWillChange ? source.revision : null,
+            // Só permitir EMITIDO caso a GRDT nova seja realmente gravada.
+            // A célula pode estar protegida ou conter fórmula, embora o plano a preveja.
+            statusRequiresGrdtWrite: statusWillChange && statusValue === 'EMITIDO' &&
+              !hasGrdtInLd && grdtWillChange,
             status: statusWillChange ? statusValue : null,
             sigemStatus: sigemStatusWillChange ? sigemStatusValue : null,
           });

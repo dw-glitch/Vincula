@@ -110,6 +110,21 @@
         const notes = new Set();
 
         for (const target of targets) {
+          // Se o STATUS depende de uma GRDT que ainda não existia, só marcar
+          // EMITIDO quando a escrita da GRDT tiver realmente sido concluída.
+          // Fórmulas, proteção ou posição inválida podem impedir essa escrita.
+          if (target.field === 'STATUS' && item.statusRequiresGrdtWrite && !applied.includes('GRDT')) {
+            blockedFields.push('STATUS');
+            occurrences.push({
+              file: wb.name,
+              sheet: sheet.name,
+              ref: `${indexToColumn(target.col)}${item.row}`,
+              type: 'DEPENDENCIA_GRDT',
+              detail: 'STATUS EMITIDO preservado: a GRDT nova não foi gravada nesta linha.',
+              document: item.document,
+            });
+            continue;
+          }
           const check = X.inspectTarget(model, guards, item.row, target.col);
           check.notes.forEach((note) => notes.add(note));
           if (check.blocked) {
