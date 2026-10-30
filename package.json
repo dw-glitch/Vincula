@@ -1,0 +1,14 @@
+{
+  "name": "vincula",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Vincula — aplicativo estático de atualização de LDs, publicação via Cloudflare Workers",
+  "scripts": {
+    "build": "node scripts/build-cloudflare.mjs",
+    "verify:cloudflare": "node scripts/verify-cloudflare.mjs",
+    "test": "node tests/run.js && node tests/conference-relation.js && node tests/ld-status.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
