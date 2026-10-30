@@ -222,10 +222,13 @@
         // Pendências da Conferência (statusOnly) não prometem preencher GRDT.
         const hasGrdtInLd = sheetHasGrdt && hasFilledGrdt(entry.beforeGrdt);
         const hasGrdtAfterUpdate = hasGrdtInLd || grdtWillChange;
-        // O propósito da própria LD decide o CANCELADO; o da relação não
-        // pode forçar EMITIDO em linhas ainda sem GRDT.
+        // O propósito da própria LD decide o CANCELADO; quando a LD não tem
+        // essa coluna, a relação histórica pode fornecer o CANCELADO legado.
+        // Em qualquer caso, EMITIDO só ocorre com GRDT existente ou prevista.
+        const ldPurpose = entry.hasPurposeCol ? entry.beforePurpose
+          : (isConference ? '' : statusSource.purpose);
         const statusValue = sheetHasStatus
-          ? statusFromLdPurpose(entry.hasPurposeCol ? entry.beforePurpose : '', hasGrdtAfterUpdate)
+          ? statusFromLdPurpose(ldPurpose, hasGrdtAfterUpdate)
           : '';
         const statusWillChange =
           !!statusValue && sheetHasStatus && normalizeHeader(entry.beforeStatus) !== normalizeHeader(statusValue);
