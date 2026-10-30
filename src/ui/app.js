@@ -379,7 +379,7 @@
                </div>` : ''}`
         }
       </div>
-      <div class="file-meta">${esc(sheet.name)} · ${formatNumber(sheet.maxRow)} linhas · ${formatNumber(sheet.maxCol)} colunas${mapping.purposeCol && mapping.statusCol ? ' · STATUS da LD calculado pelo propósito da própria LD' : ' · Mapeie Propósito e Status para atualização automática na LD'}${ldConference ? ' · STATUS SIGEM independente' : ''}</div>
+      <div class="file-meta">${esc(sheet.name)} · ${formatNumber(sheet.maxRow)} linhas · ${formatNumber(sheet.maxCol)} colunas${mapping.statusCol ? ' · STATUS da LD: EMITIDO com GRDT preenchida ou a preencher; CANCELADO por propósito local' : ' · Mapeie a coluna STATUS para atualização automática na LD'}${ldConference ? ' · STATUS SIGEM independente' : ''}</div>
       ${
         extra
           ? `<div class="sheet-actions">
