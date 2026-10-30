@@ -199,6 +199,59 @@ async function run() {
   assert.equal(await readStatus(noPurposeResult.bytes,2,4),'EMITIDO');
   assert.equal(await readStatus(noPurposeResult.bytes,3,4),'PENDENTE');
 
+
+  // Se uma fórmula impedir a nova GRDT, EMITIDO não pode ser gravado
+  // antecipadamente. Com GRDT já existente, o STATUS continua independente.
+  const blockedRelation = await buildWorkbook(JSZip,[{
+    name:'Relacao',rows:[
+      [{text:'Documento'},{text:'GRDT'},{text:'Data Efetiva de Emissão'},{text:'Propósito'}],
+      [{text:'DOC-GRDT-BLOQUEADA'},{text:'GR-NEW'},{dateSerial:date,style:STYLE.DATE},{text:'CONSTRUÇÃO'}],
+      [{text:'DOC-GRDT-EXISTENTE'},{text:'GR-NEW2'},{dateSerial:date,style:STYLE.DATE},{text:'CONSTRUÇÃO'}],
+    ],
+  }]);
+  const blockedLd = await buildWorkbook(JSZip,[{
+    name:'Documentos',rows:[
+      [{text:'Documento'},{text:'GRDT'},{text:'Data Efetiva de Emissão'},
+       {text:'PROPÓSITO DE EMISSÃO'},{text:'STATUS'}],
+      [{text:'DOC-GRDT-BLOQUEADA'},{formula:'""',cached:''},{dateSerial:date,style:STYLE.DATE},
+       {text:'CONSTRUÇÃO'},{text:'PENDENTE'}],
+      [{text:'DOC-GRDT-EXISTENTE'},{formula:'CONCATENATE("GR-","OLD")',cached:'GR-OLD'},
+       {dateSerial:date,style:STYLE.DATE},{text:'CONSTRUÇÃO'},{text:'PENDENTE'}],
+      [{text:'DOC-CANCELADO-SEM-GRDT'},{inline:''},{dateSerial:date,style:STYLE.DATE},
+       {text:'CANCELADO'},{text:'PENDENTE'}],
+    ],
+  }]);
+  const blockedRelMeta = await V.tasks.open({
+    fileId:'blocked-rel',name:'BLOCKED_REL.xlsx',bytes:blockedRelation,hash:'blocked-rel',profile:'relation',
+  });
+  const blockedLdMeta = await V.tasks.open({
+    fileId:'blocked-ld',name:'BLOCKED_LD.xlsx',bytes:blockedLd,hash:'blocked-ld',profile:'ld',
+  });
+  const blockedRelIndex = await V.tasks.indexRelation({fileId:'blocked-rel',mapping:blockedRelMeta.mapping});
+  const blockedLdIndex = await V.tasks.indexLd({fileId:'blocked-ld',mapping:blockedLdMeta.mapping});
+  const blockedAnalysis = V.analyzer.analyze(
+    blockedRelIndex,V.indexer.buildGlobalIndex([blockedLdIndex]),
+    new Map([['blocked-ld',{id:'blocked-ld',name:'BLOCKED_LD.xlsx',sheetName:'Documentos'}]])
+  );
+  const blockedPlan = blockedAnalysis.plans.get('blocked-ld');
+  const blockedFirst = blockedPlan.find(p=>p.document==='DOC-GRDT-BLOQUEADA');
+  const blockedSecond = blockedPlan.find(p=>p.document==='DOC-GRDT-EXISTENTE');
+  assert.equal(blockedFirst.statusRequiresGrdtWrite,true,'novo EMITIDO depende da GRDT gravada');
+  assert.equal(blockedSecond.statusRequiresGrdtWrite,false,'GRDT previamente preenchida dispensa a nova escrita');
+  const blockedResult = await V.tasks.apply({
+    fileId:'blocked-ld',mapping:blockedLdMeta.mapping,plan:blockedPlan,options:{verify:true},
+  });
+  assert.equal(blockedResult.ok,true,blockedResult.error);
+  assert.equal(blockedResult.integrity.ok,true);
+  assert.equal(await readStatus(blockedResult.bytes,2,5),'PENDENTE','não marcar EMITIDO com GRDT nova bloqueada');
+  assert.equal(await readStatus(blockedResult.bytes,3,5),'EMITIDO','GRDT existente permite STATUS emitido');
+  assert.equal(await readStatus(blockedResult.bytes,4,5),'CANCELADO','cancelamento sem GRDT permanece permitido');
+  assert.equal(blockedResult.counters.grdtWrites,0,'fórmulas de GRDT foram preservadas');
+  assert.equal(blockedResult.counters.statusWrites,2,'somente STATUS de linhas elegíveis foram gravados');
+  assert.ok(blockedResult.occurrences.some(o=>
+    o.type==='DEPENDENCIA_GRDT' && o.document==='DOC-GRDT-BLOQUEADA'
+  ),'bloqueio da atualização do STATUS registrado em auditoria');
+
   console.log('STATUS LD: regras, independência SIGEM, Excel, integridade e lote de 1200 aprovados.');
   V.tasks.releaseAll();
 }
