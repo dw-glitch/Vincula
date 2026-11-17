@@ -6,7 +6,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const output = path.join(root, 'dist-cloudflare');
 const required = [
   'index.html', 'styles.css', 'deployment-meta.json',
-  'lib/jszip.min.js', 'src/core/analyzer.js', 'src/core/applier.js',
+  'lib/jszip.min.js', 'src/core/analyzer.js', 'src/core/applier.js', 'src/core/package-audit.js',
   'src/ui/app.js', 'src/ui/conference-source.js',
   'src/workers/ld-worker.js', 'src/workers/pool.js'
 ];

@@ -36,6 +36,10 @@ jobs:
           node --check tests/run.js
           node --check tests/conference-relation.js
           node --check tests/ld-status.js
+          node --check src/core/package-audit.js
+          node --check src/core/xlsx.js
+          node --check tests/package-integrity.js
+          node --check scripts/diagnostico-ld.js
 
       - name: Executar suíte funcional e de integridade
         run: node tests/run.js
@@ -45,6 +49,9 @@ jobs:
 
       - name: Validar regressões de STATUS da LD
         run: node tests/ld-status.js
+
+      - name: Validar preservação de fórmulas e vínculos externos
+        run: node tests/package-integrity.js
 
       - name: Montar e validar publicação estática Cloudflare
         run: |

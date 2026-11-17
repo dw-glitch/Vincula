@@ -502,6 +502,11 @@
     const sheetResults = [];
     let failure = null;
 
+    // Inventário do pacote ORIGINAL, antes de qualquer emenda: é a base da
+    // auditoria de pacote que roda depois de gerar o arquivo.
+    const detailSheets = targets.filter((t) => (groups.get(t.sheetPath) || []).length).map((t) => t.sheetPath);
+    const packageBefore = await V.packageAudit.inventory(entry.wb.zip, { detailSheets });
+
     for (const target of targets) {
       const items = groups.get(target.sheetPath) || [];
       if (!items.length) continue;
@@ -575,6 +580,41 @@
     };
 
     const closed = await V.applier.finalize(entry.wb, options || {});
+
+    // Auditoria do pacote: relê o arquivo gerado do zero, como o Excel faria,
+    // e compara partes, vínculos externos, nomes, tabelas e fórmulas com o
+    // original. Uma FALHA aqui impede a entrega do arquivo como íntegro.
+    const authorized = new Map(
+      sheetResults.filter((r) => r.ok).map((r) => [r.sheetPath, new Set(r.authorizedRefs || [])])
+    );
+    const generatedZip = await scope.JSZip.loadAsync(closed.bytes);
+    const packageAfter = await V.packageAudit.inventory(generatedZip, { detailSheets });
+    const packageIntegrity = V.packageAudit.compare(packageBefore, packageAfter, {
+      editedSheets: authorized.keys(),
+      authorized,
+      fileName: entry.name,
+    });
+    sheetResults.forEach((r) => delete r.authorizedRefs);
+
+    if (!packageIntegrity.ok) {
+      V.applier.rollback(entry.wb);
+      return {
+        ok: false,
+        fileId,
+        name: entry.name,
+        sheetName: sheetResults.length ? sheetResults[0].sheetName : targets[0].sheetName,
+        sheets,
+        error:
+          `Integridade do pacote reprovada em ${entry.name}: o arquivo NÃO foi liberado para download. ` +
+          packageIntegrity.failures.slice(0, 4).join(' | '),
+        snapshotHash: sheetResults.length ? sheetResults[0].snapshotHash : null,
+        results,
+        occurrences,
+        packageIntegrity,
+        rolledBack: true,
+      };
+    }
+
     return {
       ok: true,
       fileId,
@@ -587,6 +627,7 @@
       occurrences,
       guards: mergeGuards(sheetResults),
       integrity,
+      packageIntegrity,
       counters,
       ...closed,
     };

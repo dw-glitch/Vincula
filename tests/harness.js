@@ -22,6 +22,7 @@ const CORE_FILES = [
   'src/core/xlsx.js',
   'src/core/indexer.js',
   'src/core/analyzer.js',
+  'src/core/package-audit.js',
   'src/core/applier.js',
   'src/core/audit.js',
   'src/core/packager.js',

@@ -488,8 +488,20 @@
     const cfRe = /<conditionalFormatting\b[^>]*sqref="([^"]+)"/g;
     while ((m = cfRe.exec(outside))) conditional.push(...parseRanges(m[1]));
 
+    // Intervalos de fórmulas de matriz (CSE e matriz dinâmica) e de tabelas
+    // de dados: as células do intervalo pertencem à fórmula da célula-mestra
+    // mesmo sem ter <f> próprio. Sobrescrever uma delas quebra a matriz.
+    const arrays = [];
+    const sheetData = dataStart >= 0 && dataEnd >= 0 ? xml.slice(dataStart, dataEnd) : '';
+    const arrayRe = /<f\b([^>]*\bt="(?:array|dataTable)"[^>]*)>/g;
+    while ((m = arrayRe.exec(sheetData))) {
+      const ref = readAttr(m[1], 'ref');
+      if (ref) arrays.push(...parseRanges(ref));
+    }
+
     return {
       protected: !!protection,
+      arrays,
       protectionAttrs: protection ? parseAttrs(protection[1]) : null,
       merges,
       validations,
@@ -507,6 +519,10 @@
     if (cell && cell.hasFormula) {
       blocked = 'FORMULA';
       notes.push('Célula de destino contém fórmula; alteração não aplicada para preservar o cálculo.');
+    }
+    if (!blocked && guards.arrays && guards.arrays.length && rangesContain(guards.arrays, row, col)) {
+      blocked = 'FORMULA';
+      notes.push('Célula de destino pertence ao intervalo de uma fórmula de matriz; alteração não aplicada para preservar o cálculo.');
     }
     if (guards.merges.length && rangesContain(guards.merges, row, col)) {
       blocked = blocked || 'MESCLADA';
@@ -535,11 +551,17 @@
     const edits = [];
     const authorized = new Set();
 
+    /**
+     * Os valores de `attrs` vêm crus do XML original (já escapados): são
+     * regravados como estão, sem segundo escape. `cm`/`vm` apontam metadados
+     * de matriz dinâmica / valor rico do conteúdo ANTIGO da célula e ficariam
+     * órfãos com o novo valor — o Excel trataria isso como conteúdo ilegível.
+     */
     function buildCellXml(ref, attrs, body, typeAttr) {
       let out = `<c r="${ref}"`;
       for (const [key, value] of Object.entries(attrs)) {
-        if (key === 'r' || key === 't') continue;
-        out += ` ${key}="${escapeXml(value)}"`;
+        if (key === 'r' || key === 't' || key === 'cm' || key === 'vm') continue;
+        out += ` ${key}="${value}"`;
       }
       if (typeAttr) out += ` t="${typeAttr}"`;
       return body ? `${out}>${body}</c>` : `${out}/>`;
@@ -736,19 +758,41 @@
     wb.pendingParts.set(path, xml);
   }
 
+  /**
+   * Gera o XLSX final substituindo SOMENTE as partes pendentes.
+   *
+   * - `createFolders: false`: o JSZip, por padrão, insere entradas de
+   *   diretório ("xl/", "xl/worksheets/") ao gravar uma parte. Elas não
+   *   existem num pacote salvo pelo Excel e não fazem parte do OPC; o arquivo
+   *   gerado precisa ter exatamente as mesmas partes do original.
+   * - O ZIP carregado continua sendo o ORIGINAL depois do commit: as partes
+   *   substituídas são restauradas logo após a geração. Assim a auditoria do
+   *   pacote compara sempre contra a entrada real, um rollback posterior não
+   *   herda emendas já empacotadas e uma nova execução parte do original.
+   */
   async function commit(wb, options = {}) {
     const styleXml = serializeStyles(wb.styles);
     if (styleXml) wb.pendingParts.set('xl/styles.xml', styleXml);
-    for (const [path, xml] of wb.pendingParts) wb.zip.file(path, xml);
+    const originals = new Map();
+    for (const [path, xml] of wb.pendingParts) {
+      originals.set(path, wb.zip.files[path] || null);
+      wb.zip.file(path, xml, { createFolders: false });
+    }
     wb.pendingParts.clear();
 
-    const bytes = await wb.zip.generateAsync({
-      type: 'uint8array',
-      compression: 'DEFLATE',
-      compressionOptions: { level: options.level ?? 9 },
-      mimeType: options.mimeType,
-    });
-    return bytes;
+    try {
+      return await wb.zip.generateAsync({
+        type: 'uint8array',
+        compression: 'DEFLATE',
+        compressionOptions: { level: options.level ?? 9 },
+        mimeType: options.mimeType,
+      });
+    } finally {
+      for (const [path, original] of originals) {
+        if (original) wb.zip.files[path] = original;
+        else delete wb.zip.files[path];
+      }
+    }
   }
 
   /**

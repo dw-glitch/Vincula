@@ -6,7 +6,21 @@
 node tests/run.js            # suíte funcional e de integridade — 262 verificações
 node tests/bench.js          # volume: 100 LDs × (200 documentos + aba de CV) = 21.000
 node tests/bench.js 5 4000   # volume: 5 LDs × (4.000 documentos + aba de CV)
+node tests/package-integrity.js   # fórmulas, vínculos externos e estrutura do pacote XLSX
 ```
+
+### Diagnóstico com LDs reais
+
+As LDs reais não ficam no repositório. Para auditá-las localmente (nada sai da máquina):
+
+```bash
+node scripts/diagnostico-ld.js LD.xlsx                                  # inventário
+node scripts/diagnostico-ld.js --comparar ORIGINAL.xlsx GERADA.xlsx     # antes × depois
+node scripts/diagnostico-ld.js --relacao RELACAO.xlsx LD1.xlsx LD2.xlsx # ponta a ponta
+```
+
+O modo `--comparar` separa `#REF!` que já existia na entrada (ALERTA) de `#REF!` introduzido no
+processamento (FALHA).
 
 Sem dependências externas e sem instalação: `tests/harness.js` carrega os módulos de
 `src/core/` em um contexto `vm` do Node com `self` apontando para o sandbox — exatamente o
@@ -128,6 +142,18 @@ gravação e integridade com a terceira coluna autorizada.
 ### Pacote e memória — 6 verificações
 Pacote contém LDs, relatório, log e manifesto; o hash da LD dentro do ZIP bate com o hash
 gerado; os arquivos abertos são liberados.
+
+### Integridade do pacote XLSX — 23 verificações (`tests/package-integrity.js`)
+Fixture `tests/fixtures-external.js` no formato salvo pelo Excel: dois `externalLinks` (caminho
+absoluto `Z:\GRUPOS-HDD\…\Controle de Solicitações de Documentos_02.xlsx` e um relativo),
+`externalReferences`, nome definido apontando para o vínculo, PROCX `[1]`, PROCV compartilhada
+`[2]`, CONT.SES, SOMASES, fórmula de matriz, fórmulas e nome com `#REF!` pré-existentes, tabela
+com coluna calculada, comentários, hiperlink externo, `calcChain`, painel congelado e
+`printerSettings`. Verifica: mesmas partes sem diretórios; 20 partes não editadas byte a byte
+idênticas; caminhos dos vínculos literais; fórmulas e cache idênticos; contagens antes = depois;
+`#REF!` legado como ALERTA; regras de STATUS; ZIP de origem intacto após o commit; e que a
+auditoria REPROVA vínculo removido, caminho trocado por caminho local, PROCX convertida em valor,
+`#REF!` introduzido e diretórios inseridos.
 
 ## Teste de volume
 

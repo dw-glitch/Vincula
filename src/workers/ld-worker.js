@@ -18,6 +18,7 @@ importScripts(
   '../core/xlsx.js',
   '../core/indexer.js',
   '../core/analyzer.js',
+  '../core/package-audit.js',
   '../core/applier.js',
   '../core/tasks.js'
 );

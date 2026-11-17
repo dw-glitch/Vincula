@@ -89,6 +89,12 @@ marcadas podem ser modificadas. Cada aba gerada é conferida célula a célula c
 antes de ser empacotada, e as abas fora do mapeamento permanecem byte a byte idênticas; qualquer
 divergência fora do escopo aborta a gravação daquele arquivo e dispara rollback.
 
+Depois de gerado, o XLSX é relido do zero e comparado com o original no nível do pacote:
+vínculos externos (`xl/externalLinks`) e seus caminhos de rede, relacionamentos externos, nomes
+definidos, tabelas, quantidade de fórmulas (PROCX, PROCV, SOMASES, CONT.SES, SE, com referência a
+outro arquivo) e cada fórmula das abas editadas. `#REF!` que já existia na entrada é apenas
+informado; qualquer perda real bloqueia o download daquele arquivo.
+
 ## Detecção inteligente de cabeçalhos
 
 O reconhecimento não depende de grafia exata. Caixa, acentuação, hífens, espaços extras e
@@ -126,7 +132,9 @@ Não há suporte a `.xls` binário nem a arquivos protegidos por senha (criptogr
 ## Testes
 
 ```bash
-node tests/run.js          # suíte funcional e de integridade (247 verificações)
+node tests/run.js          # suíte funcional e de integridade (293 verificações)
+node tests/package-integrity.js   # fórmulas, vínculos externos e estrutura do pacote
+node scripts/diagnostico-ld.js --comparar ORIGINAL.xlsx GERADA.xlsx   # auditar LDs reais
 node tests/bench.js        # teste de volume: 100 LDs × (200 documentos + aba de CV)
 node tests/bench.js 5 4000 # variação: poucos arquivos, muitas linhas
 ```
@@ -147,6 +155,7 @@ node tests/bench.js 5 4000 # variação: poucos arquivos, muitas linhas
 │   │   ├── xlsx.js            leitor/gravador XLSX por offsets
 │   │   ├── indexer.js         índices da relação e das LDs
 │   │   ├── analyzer.js        cruzamento e plano de escrita
+│   │   ├── package-audit.js   auditoria do pacote: fórmulas, vínculos externos, estrutura
 │   │   ├── applier.js         gravação, snapshot, rollback, integridade
 │   │   ├── audit.js           relatório XLSX + log JSON
 │   │   ├── packager.js        pacote ZIP final

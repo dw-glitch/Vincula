@@ -1,5 +1,49 @@
 # Changelog
 
+## 2.3.0 — Preservação integral de fórmulas e vínculos externos
+
+### Diagnóstico
+
+- O núcleo já gravava por emenda de offsets: só as células autorizadas são reescritas e todas as
+  partes que o Vincula não edita (`xl/externalLinks/*`, `xl/externalLinks/_rels/*`,
+  `xl/workbook.xml`, `xl/_rels/workbook.xml.rels`, `calcChain.xml`, tabelas, comentários,
+  `sharedStrings.xml`) eram reaproveitadas pelo JSZip. Não há conversão para JSON/CSV, a planilha
+  não é recriada e nenhuma fórmula é convertida em valor.
+- Defeitos estruturais encontrados no reempacotamento:
+  - `zip.file()` do JSZip usa `createFolders: true` por padrão e inseria entradas de diretório
+    (`xl/`, `xl/worksheets/`) que não existem num pacote salvo pelo Excel;
+  - o `commit` gravava as abas emendadas **dentro do ZIP original em memória**: depois da primeira
+    geração, o "original" deixava de ser original, e um rollback posterior não desfazia isso;
+  - atributos da célula regravada recebiam um segundo escape (`&amp;` → `&amp;amp;`) e os
+    atributos `vm`/`cm` (metadados de valor rico / matriz dinâmica) ficavam órfãos;
+  - células dentro do intervalo de uma fórmula de matriz (CSE ou matriz dinâmica) não eram
+    reconhecidas como parte da fórmula e podiam ser sobrescritas;
+  - não havia validação do pacote como um todo — só aba a aba.
+
+### Correções
+
+- `xlsx.commit`: `createFolders: false` e restauração das partes originais no ZIP em memória
+  logo após a geração.
+- Editor de células: atributos regravados como estavam; `vm`/`cm` descartados ao trocar o
+  conteúdo; intervalo de fórmula de matriz bloqueado como fórmula.
+- Novo `src/core/package-audit.js`: antes de liberar cada LD, relê o XLSX gerado do zero e
+  compara com o original — partes do pacote (byte a byte), `styles.xml` (somente acréscimos),
+  abas, nomes definidos, tabelas, vínculos externos e o caminho gravado em cada um, todos os
+  relacionamentos `TargetMode="External"`, quantidade de fórmulas (total, por aba, PROCX, PROCV,
+  SOMASES, CONT.SES, SE, com referência externa) e cada célula com fórmula das abas editadas
+  (texto e valor em cache). `#REF!` já existente na entrada é informado como ALERTA; só reprova
+  `#REF!` novo. Qualquer FALHA faz rollback e o arquivo **não** é liberado para download.
+- Relatório de auditoria ganhou as abas *Integridade do Pacote*, *Fórmulas por Aba* e
+  *Vínculos Externos*; o log JSON ganhou `integridadePacote`; a tela de downloads mostra o
+  resumo de integridade de cada LD.
+- Vínculos gravados com caminho **relativo** são preservados sem alteração e sinalizados no
+  relatório: o Excel os resolve a partir da pasta em que a LD é aberta.
+- Download de `.xlsm` com o MIME de pasta habilitada para macro.
+- `scripts/diagnostico-ld.js`: inventário, comparação original × gerada e processamento de
+  ponta a ponta sem navegador, para auditar LDs reais localmente.
+- `tests/package-integrity.js` + `tests/fixtures-external.js`: LD no formato salvo pelo Excel com
+  vínculo a `Controle de Solicitações de Documentos_02.xlsx` em `Z:\GRUPOS-HDD\…`.
+
 ## 2.2.0
 
 O Vincula passa a aceitar automaticamente **duas fontes do GRCON** na mesma área de importação:

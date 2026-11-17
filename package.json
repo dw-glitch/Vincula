@@ -6,7 +6,7 @@
   "scripts": {
     "build": "node scripts/build-cloudflare.mjs",
     "verify:cloudflare": "node scripts/verify-cloudflare.mjs",
-    "test": "node tests/run.js && node tests/conference-relation.js && node tests/ld-status.js"
+    "test": "node tests/run.js && node tests/conference-relation.js && node tests/ld-status.js && node tests/package-integrity.js"
   },
   "engines": {
     "node": ">=22"
