@@ -17,10 +17,12 @@ jobs:
     name: Testar e publicar Workers Static Assets
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
+      CLOUDFLARE_DEPLOY_HOOK: ${{ secrets.CLOUDFLARE_DEPLOY_HOOK }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PRODUCTION_URL: https://vincula-cloudflare.grcon-qualidade.workers.dev
     steps:
       - name: Obter Vincula
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -36,9 +38,39 @@ jobs:
         run: |
           npm run build
           npm run verify:cloudflare
-      - name: Publicar (se o repositório possuir secrets Cloudflare)
-        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+
+      # Caminho principal: deploy hook do Workers Builds. O build integrado da
+      # Cloudflare não dispara para pushes feitos por apps/bots do GitHub
+      # (merges via integração); este passo dispara sempre, e só depois dos
+      # testes acima passarem.
+      - name: Publicar via deploy hook do Workers Builds
+        if: env.CLOUDFLARE_DEPLOY_HOOK != ''
+        run: |
+          curl -fsS -X POST "$CLOUDFLARE_DEPLOY_HOOK" -o /dev/null
+          echo "Build da Cloudflare solicitado para ${GITHUB_SHA}."
+      - name: Publicar com Wrangler (alternativa por token de API)
+        if: env.CLOUDFLARE_DEPLOY_HOOK == '' && env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
         run: npx --yes wrangler@4.34.0 deploy --config wrangler.jsonc
+      - name: Confirmar a revisão publicada
+        if: env.CLOUDFLARE_DEPLOY_HOOK != '' || (env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '')
+        run: |
+          # O build do hook pode esperar na fila da Cloudflare: até ~20 min.
+          for attempt in $(seq 1 80); do
+            published=$(curl -fsS "$PRODUCTION_URL/deployment-meta.json?t=$(date +%s)" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).revision)}catch{console.log("")}})' || true)
+            if [ "$published" = "$GITHUB_SHA" ]; then
+              echo "Produção publicada na revisão $published."
+              exit 0
+            fi
+            # Um push mais novo no main substitui este: não é falha deste commit.
+            latest=$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main 2>/dev/null | cut -f1 || true)
+            if [ -n "$latest" ] && [ "$latest" != "$GITHUB_SHA" ]; then
+              echo "::notice::main avançou para $latest; a confirmação fica com a execução desse commit."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::warning::Build solicitado, mas a produção ainda mostra a revisão '$published' (esperado $GITHUB_SHA). O build pode estar na fila: confira Workers & Pages → vincula-cloudflare → Builds."
+          exit 0
       - name: Informar configuração ainda necessária
-        if: env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == ''
-        run: echo "::warning::Cloudflare não publicado por este workflow. Configure os secrets CLOUDFLARE_API_TOKEN e CLOUDFLARE_ACCOUNT_ID neste repositório ou conecte o repositório a Workers Builds."
+        if: env.CLOUDFLARE_DEPLOY_HOOK == '' && (env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == '')
+        run: echo "::warning::Cloudflare não publicado por este workflow. Configure o secret CLOUDFLARE_DEPLOY_HOOK (deploy hook do Workers Builds) ou CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID."
