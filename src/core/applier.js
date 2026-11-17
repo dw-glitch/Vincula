@@ -211,6 +211,7 @@
           autoFilter: guards.hasAutoFilter,
         },
         integrity,
+        authorizedRefs: [...editor.authorized],
         counters: { grdtWrites, dateWrites, revisionWrites, statusWrites, authorizedCells: editor.authorized.size },
       };
     } catch (error) {

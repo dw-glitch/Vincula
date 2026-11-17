@@ -431,6 +431,7 @@
       const outputs = [];
       const occurrences = [];
       const failures = [];
+      const packageReports = [];
       const outcomeByRecord = new Map();
 
       for (let i = 0; i < applied.length; i++) {
@@ -446,7 +447,8 @@
         for (const item of value.results || []) outcomeByRecord.set(item.recordId, item);
 
         if (!value.ok) {
-          failures.push({ file: target.ld.name, error: value.error });
+          failures.push({ file: target.ld.name, error: value.error, packageIntegrity: value.packageIntegrity || null });
+          if (value.packageIntegrity) packageReports.push(value.packageIntegrity);
           log('error', `Atualização revertida em ${target.ld.name}`, value.error);
           continue;
         }
@@ -463,12 +465,17 @@
           dateWrites: value.counters.dateWrites,
           revisionWrites: value.counters.revisionWrites,
           statusWrites: value.counters.statusWrites || 0,
-          integrity: value.integrity.verified ? (value.integrity.ok ? 'APROVADA' : 'REPROVADA') : 'NÃO VERIFICADA',
+          integrity: value.integrity.verified
+            ? (value.integrity.ok && value.packageIntegrity && value.packageIntegrity.ok ? 'APROVADA' : 'REPROVADA')
+            : 'NÃO VERIFICADA',
+          packageIntegrity: value.packageIntegrity || null,
+          packageSummary: V.packageAudit.summarize(value.packageIntegrity),
           comparedCells: value.integrity.comparedCells,
           guards: value.guards,
         });
       }
 
+      for (const output of outputs) if (output.packageIntegrity) packageReports.push(output.packageIntegrity);
       state.timings.atualizacao = Date.now() - started;
 
       const timestamp = new Date().toISOString();
@@ -533,6 +540,9 @@
         'Ocorrências registradas': occurrences.length,
         'Erros': failures.length,
         'Integridade': failures.length ? 'COM PENDÊNCIAS' : 'APROVADA',
+        'Integridade do pacote (fórmulas, vínculos externos, estrutura)': packageReports.length
+          ? (packageReports.every((r) => r.ok) ? `APROVADA em ${packageReports.length} LD(s)` : `REPROVADA em ${packageReports.filter((r) => !r.ok).length} LD(s) — arquivo(s) não liberado(s)`)
+          : 'SEM ARQUIVOS GERADOS',
       };
 
       const report = V.audit.buildReport({
@@ -552,6 +562,7 @@
         invalidDates: analysis.invalidDates,
         outputs,
         occurrences,
+        packageIntegrity: packageReports,
         files: state.lds.map((ld) => ({
           arquivo: ld.name,
           hash: ld.hash,

@@ -855,8 +855,12 @@
         name: o.name,
         meta: `${formatBytes(o.size)} · ${o.grdtWrites} GRDT, ${o.dateWrites} data(s)${
           o.revisionWrites ? `, ${o.revisionWrites} revisão(ões)` : ''
-        }${o.statusWrites ? ` e ${o.statusWrites} status` : ''} atualizados`,
-        blob: new Blob([o.bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+        }${o.statusWrites ? ` e ${o.statusWrites} status` : ''} atualizados${o.packageSummary ? ` · Pacote ${o.packageSummary}` : ''}`,
+        blob: new Blob([o.bytes], {
+          type: /\.xlsm$/i.test(o.name)
+            ? 'application/vnd.ms-excel.sheet.macroEnabled.12'
+            : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        }),
       })),
       { name: 'RELATORIO_AUDITORIA_VINCULA.xlsx', meta: 'Planilha com o antes e depois de cada documento', blob: result.auditBlob },
       { name: 'LOG_VINCULA.json', meta: 'Detalhes técnicos, para conferência ou TI', blob: result.logBlob },

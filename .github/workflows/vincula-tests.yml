@@ -24,3 +24,5 @@ jobs:
         run: node tests/run.js
       - name: Regressão de STATUS da LD
         run: node tests/ld-status.js
+      - name: Integridade do pacote (fórmulas e vínculos externos)
+        run: node tests/package-integrity.js

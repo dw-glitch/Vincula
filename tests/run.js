@@ -490,7 +490,7 @@ async function main() {
   const auditBytes = await V.audit.buildAuditWorkbook(report);
   check('planilha de auditoria gerada', auditBytes.length > 1000, `${auditBytes.length} bytes`);
   const auditZip = await JSZip.loadAsync(auditBytes);
-  equal('auditoria tem 8 abas', Object.keys(auditZip.files).filter((f) => /worksheets\/sheet\d+\.xml$/.test(f)).length, 8);
+  equal('auditoria tem 11 abas (inclui Integridade do Pacote, Fórmulas por Aba e Vínculos Externos)', Object.keys(auditZip.files).filter((f) => /worksheets\/sheet\d+\.xml$/.test(f)).length, 11);
   const auditReopened = await V.xlsx.open(auditBytes, 'auditoria');
   equal('auditoria é um XLSX legível', auditReopened.sheets[0].name, 'Resumo');
 

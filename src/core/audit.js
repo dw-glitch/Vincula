@@ -116,6 +116,7 @@
    */
   function buildReport(context) {
     const { summary, records, relation, duplicates, missing, invalidDates, outputs, occurrences, files, timings } = context;
+    const packageIntegrity = context.packageIntegrity || [];
 
     const detail = records.map((record) => ({
       documento: record.document,
@@ -143,7 +144,10 @@
       timestamp: record.timestamp || summary.finishedAt,
     }));
 
-    return { summary, detail, relation, duplicates, missing, invalidDates, outputs, occurrences, files, timings };
+    // Os bytes e o relatório completo do pacote não vão para o log/planilha
+    // dentro de outputs: o relatório de pacote tem seção própria.
+    const outputsLight = (outputs || []).map(({ bytes, packageIntegrity: _p, ...rest }) => rest);
+    return { summary, detail, relation, duplicates, missing, invalidDates, outputs: outputsLight, occurrences, files, timings, packageIntegrity };
   }
 
   async function buildAuditWorkbook(report) {
@@ -205,7 +209,7 @@
     ];
 
     const outputRows = [
-      ['Arquivo gerado', 'Origem', 'Abas atualizadas', 'Tamanho (bytes)', 'Células autorizadas', 'GRDT gravadas', 'Datas gravadas', 'Revisões gravadas', 'Status gravados', 'Integridade', 'SHA-256'],
+      ['Arquivo gerado', 'Origem', 'Abas atualizadas', 'Tamanho (bytes)', 'Células autorizadas', 'GRDT gravadas', 'Datas gravadas', 'Revisões gravadas', 'Status gravados', 'Integridade', 'SHA-256', 'Integridade do pacote'],
       ...report.outputs.map((o) => [
         o.name,
         o.source,
@@ -218,8 +222,21 @@
         o.statusWrites || 0,
         o.integrity,
         o.hash,
+        o.packageSummary || '',
       ]),
     ];
+
+    const integrityRows = [['Arquivo', 'Verificação', 'Resultado', 'Antes', 'Depois', 'Detalhe']];
+    const integritySheetRows = [['Arquivo', 'Aba', 'Editada', 'Fórmulas antes', 'Fórmulas depois', 'Externas antes', 'Externas depois', 'PROCX antes', 'PROCX depois', '#REF! antes', '#REF! depois', 'Células alteradas', 'Resultado', 'Detalhe']];
+    const linkRows = [['Arquivo', 'Vínculo', 'Parte', 'Caminho gravado (preservado)', 'Tipo de caminho', 'Abas de origem', 'Preservado']];
+    for (const pkg of report.packageIntegrity || []) {
+      for (const c of pkg.checks) integrityRows.push([pkg.file, c.label, c.status, c.before, c.after, c.detail]);
+      for (const s of pkg.sheets) {
+        integritySheetRows.push([pkg.file, s.sheet, s.edited ? 'SIM' : 'NÃO', s.formulasBefore, s.formulasAfter, s.externalBefore, s.externalAfter,
+          s.procxBefore, s.procxAfter, s.refBefore, s.refAfter, s.authorizedCells, s.status, s.detail]);
+      }
+      for (const l of pkg.externalLinks) linkRows.push([pkg.file, `[${l.indice}]`, l.parte || '', l.caminho, l.tipo, l.abas, l.preservado ? 'SIM' : 'NÃO']);
+    }
 
     return buildWorkbook([
       { name: 'Resumo', rows: summaryRows, widths: [38, 60] },
@@ -229,7 +246,10 @@
       { name: 'Não Encontrados', rows: missingRows, widths: [26, 14, 18, 14, 18, 60] },
       { name: 'Datas Inválidas', rows: invalidRows, widths: [26, 26, 14, 24, 20, 60] },
       { name: 'Ocorrências', rows: occurrenceRows, widths: [26, 16, 10, 26, 16, 80] },
-      { name: 'Arquivos Gerados', rows: outputRows, widths: [40, 28, 26, 16, 18, 14, 14, 14, 14, 14, 68] },
+      { name: 'Arquivos Gerados', rows: outputRows, widths: [40, 28, 26, 16, 18, 14, 14, 14, 14, 14, 68, 90] },
+      { name: 'Integridade do Pacote', rows: integrityRows, widths: [40, 56, 12, 12, 12, 90] },
+      { name: 'Fórmulas por Aba', rows: integritySheetRows, widths: [40, 24, 10, 14, 14, 14, 14, 12, 12, 12, 12, 16, 12, 70] },
+      { name: 'Vínculos Externos', rows: linkRows, widths: [40, 10, 34, 90, 28, 28, 12] },
     ]);
   }
 
@@ -254,6 +274,7 @@
           motivo: 'Data da postagem inválida — Data Efetiva de Emissão preservada.',
         })),
         ocorrencias: report.occurrences,
+        integridadePacote: report.packageIntegrity,
         detalhamento: report.detail,
       },
       null,
