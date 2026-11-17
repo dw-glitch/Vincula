@@ -27,4 +27,4 @@ O build inclui apenas `index.html`, `styles.css`, `assets/`, `lib/` e `src/`, al
 - Os secrets do repositório `GRCON` não são automaticamente compartilhados com `Vincula`. Não coloque credenciais em arquivos rastreados no Git.
 
 ## Validação e substituição de links
-Após publicar, conferir `/`, `/deployment-meta.json`, `/src/core/analyzer.js`, `/src/workers/ld-worker.js`, e testar uma LD exemplo. Somente após essa validação, substituir o atalho Vincula na caixa Aplicativos do GRCON. O endereço antigo da Vercel é mantido temporariamente para rollback.
+Após publicar, conferir `/`, `/deployment-meta.json`, `/src/core/analyzer.js`, `/src/workers/ld-worker.js`, e testar uma LD exemplo. Somente após essa validação, substituir o atalho Vincula na caixa Aplicativos do GRCON. O endereço antigo da Vercel é mantido temporariamente para rollback, congelado no último deploy: `vercel.json` desliga os deploys automáticos da Vercel (`git.deploymentEnabled: false`), então ela não recebe mais as correções publicadas na Cloudflare.
